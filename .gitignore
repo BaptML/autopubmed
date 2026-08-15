@@ -1,0 +1,21 @@
+# Secrets — ne jamais commiter
+.env
+
+# Données locales : base SQLite (mode WAL) et CSV Scimago
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+*.egg-info/
+
+# Éditeurs / OS
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
