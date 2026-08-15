@@ -26,7 +26,11 @@ def connect(db_path: Path | None = None) -> sqlite3.Connection:
     """Ouvre une connexion configurée. À fermer par l'appelant."""
     path = db_path or settings.db_path
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path, timeout=30.0)
+    # check_same_thread=False : FastAPI sert les dépendances synchrones depuis
+    # un pool de threads, et rien ne garantit que la dépendance et la vue
+    # tournent sur le même. La connexion reste privée à une requête, donc
+    # jamais utilisée par deux threads à la fois.
+    conn = sqlite3.connect(path, timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     # WAL : lecteurs et écrivain concurrents sans blocage mutuel.
     conn.execute("PRAGMA journal_mode=WAL")

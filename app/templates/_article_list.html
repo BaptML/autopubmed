@@ -1,0 +1,39 @@
+{% import "_macros.html" as macros %}
+
+<div class="entete-liste">
+  <div>
+    <h1>{{ query.name }}</h1>
+    <div class="chaine-pubmed">{{ query.pubmed_query }}</div>
+  </div>
+  <div class="meta-liste">
+    {{ articles|length }} article{{ 's' if articles|length > 1 }}<br>
+    {% if query.quartile_min %}quartile ≤ {{ query.quartile_min }}<br>{% endif %}
+    {% if query.citedness_min %}citedness ≥ {{ query.citedness_min }}<br>{% endif %}
+    {% if query.last_refreshed_at %}
+      màj {{ query.last_refreshed_at|date_fr }}
+    {% else %}
+      jamais rafraîchie
+    {% endif %}
+  </div>
+</div>
+
+{% if not articles %}
+  <p class="vide-message">
+    Aucun article en cache pour cette requête.<br>
+    Lance <code>uv run python -m app.refresh --id {{ query.id }}</code> pour la remplir.
+  </p>
+{% endif %}
+
+{% for article in articles %}
+  <article class="article">
+    <h3>
+      <a href="{{ article.url }}" target="_blank" rel="noopener">{{ article.title }}</a>
+    </h3>
+    <div class="ligne-meta">
+      <span class="revue">{{ article.journal or "revue inconnue" }}</span>
+      {{ macros.badge_quartile(article.quartile) }}
+      <span>{{ article.pub_date|date_fr }}</span>
+      <span>PMID {{ article.pmid }}</span>
+    </div>
+  </article>
+{% endfor %}

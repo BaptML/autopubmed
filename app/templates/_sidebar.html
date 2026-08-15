@@ -1,0 +1,22 @@
+<h1 class="titre-app">Veille <span>PubMed</span></h1>
+
+{% if not folders %}
+  <p class="vide-message" style="padding: 20px 18px; text-align: left;">
+    Aucune requête enregistrée.
+  </p>
+{% endif %}
+
+{% for folder in folders %}
+  <section class="dossier">
+    <h2>{{ folder.name }}</h2>
+    {% for query in folder.queries %}
+      <button class="lien-requete"
+              hx-get="/queries/{{ query.id }}/articles"
+              hx-target="#panneau"
+              hx-swap="innerHTML">
+        <span class="nom">{{ query.name }}</span>
+        <span class="compteur {{ 'vide' if not query.unread }}">{{ query.unread }}</span>
+      </button>
+    {% endfor %}
+  </section>
+{% endfor %}

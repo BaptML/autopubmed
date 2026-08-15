@@ -143,6 +143,72 @@ def link_article(conn: sqlite3.Connection, query_id: int, pmid: str) -> bool:
     return cursor.rowcount > 0
 
 
+# --- Lectures pour l'interface -------------------------------------------
+
+# Le tri vient de la base : on ne concatène jamais sa valeur brute en SQL.
+_SORT_CLAUSES = {
+    "date_desc": "a.pub_date DESC, a.pmid DESC",
+    "date_asc": "a.pub_date ASC, a.pmid ASC",
+    "journal": "a.journal ASC, a.pub_date DESC",
+}
+
+# Meilleur quartile parmi les ISSN de l'article : c'est la même double
+# tentative que dans le pipeline, exprimée en SQL.
+_QUARTILE_SUBQUERY = """
+    (SELECT MIN(jq.quartile) FROM journal_quality jq
+      WHERE jq.issn IN (a.issn, a.eissn)) AS quartile
+"""
+
+
+def folders_with_queries(conn: sqlite3.Connection) -> list[dict]:
+    """Arborescence de la barre latérale : dossiers, requêtes, non-lus."""
+    rows = conn.execute(
+        """
+        SELECT q.id, q.name, q.folder, q.last_refreshed_at,
+               COUNT(CASE WHEN qa.read = 0 THEN 1 END) AS unread,
+               COUNT(qa.pmid) AS total
+        FROM queries q
+        LEFT JOIN query_articles qa ON qa.query_id = q.id
+        GROUP BY q.id
+        ORDER BY q.folder COLLATE NOCASE, q.name COLLATE NOCASE
+        """
+    ).fetchall()
+
+    folders: dict[str, list[dict]] = {}
+    for row in rows:
+        folders.setdefault(row["folder"], []).append(dict(row))
+    return [{"name": name, "queries": queries} for name, queries in folders.items()]
+
+
+def list_articles_for_query(
+    conn: sqlite3.Connection, query_id: int, sort: str = "date_desc"
+) -> list[dict]:
+    """Articles d'une requête, tels quels depuis le cache — aucun appel réseau."""
+    order_by = _SORT_CLAUSES.get(sort, _SORT_CLAUSES["date_desc"])
+    rows = conn.execute(
+        f"""
+        SELECT a.pmid, a.title, a.journal, a.pub_date, a.url,
+               a.abstract IS NOT NULL AS has_abstract,
+               qa.read, qa.first_seen,
+               {_QUARTILE_SUBQUERY}
+        FROM query_articles qa
+        JOIN articles a ON a.pmid = qa.pmid
+        WHERE qa.query_id = ?
+        ORDER BY {order_by}
+        """,
+        (query_id,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def count_unread(conn: sqlite3.Connection, query_id: int) -> int:
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM query_articles WHERE query_id = ? AND read = 0",
+        (query_id,),
+    ).fetchone()
+    return int(row["n"])
+
+
 # --- Qualité des revues --------------------------------------------------
 
 

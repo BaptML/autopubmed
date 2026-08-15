@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Veille PubMed</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <script src="/static/htmx.min.js" defer></script>
+</head>
+<body>
+  <div class="mise-en-page">
+    <aside class="barre-laterale" id="barre-laterale"
+           hx-get="/queries" hx-trigger="load" hx-swap="innerHTML">
+    </aside>
+
+    <main class="panneau" id="panneau">
+      <p class="vide-message">Sélectionne une requête dans la colonne de gauche.</p>
+    </main>
+  </div>
+
+  <script>
+    // Surbrillance de la requête ouverte. État purement visuel : la logique
+    // reste côté serveur, en fragments HTML.
+    document.body.addEventListener('click', (event) => {
+      const lien = event.target.closest('.lien-requete');
+      if (!lien) return;
+      document.querySelectorAll('.lien-requete.actif')
+              .forEach((el) => el.classList.remove('actif'));
+      lien.classList.add('actif');
+    });
+  </script>
+</body>
+</html>

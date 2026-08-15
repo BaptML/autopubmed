@@ -1,0 +1,8 @@
+{# Badge de quartile — même code couleur partout dans l'interface. #}
+{% macro badge_quartile(quartile) -%}
+  {%- if quartile -%}
+    <span class="badge q{{ quartile }}" title="Quartile SJR {{ quartile }}">Q{{ quartile }}</span>
+  {%- else -%}
+    <span class="badge nc" title="Revue absente du classement Scimago">non classée</span>
+  {%- endif -%}
+{%- endmacro %}
