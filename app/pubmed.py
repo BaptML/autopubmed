@@ -11,12 +11,13 @@ from __future__ import annotations
 import asyncio
 import re
 from typing import Any
+from xml.etree import ElementTree
 
 import httpx
 
 from app.config import settings
 from app.issn import normalize_issn
-from app.models import ArticleSummary, ESearchResult
+from app.models import ArticleSummary, ESearchResult, JournalMatch
 
 BASE_URL = "https://eutils.ncbi.nlm.nih.gov/entrez/eutils"
 
@@ -123,6 +124,35 @@ def parse_esearch(payload: dict[str, Any]) -> ESearchResult:
     )
 
 
+def parse_nlmcatalog_xml(xml: str) -> list[JournalMatch]:
+    """Extrait titre, abréviation NLM et ISSN des fiches du catalogue.
+
+    `MedlineTA` est l'abréviation officielle attendue par `[ta]` : c'est elle
+    qui traduit « New England Journal of Medicine » en « N Engl J Med ».
+    """
+    try:
+        root = ElementTree.fromstring(xml)
+    except ElementTree.ParseError:
+        return []
+
+    matches: list[JournalMatch] = []
+    for record in root.iter("NLMCatalogRecord"):
+        title_node = record.find("./TitleMain/Title")
+        title = "".join(title_node.itertext()).strip() if title_node is not None else ""
+        if not title:
+            continue
+        abbreviation = record.findtext("MedlineTA", default="").strip() or None
+        issns = [
+            normalized
+            for node in record.iter("ISSN")
+            if (normalized := normalize_issn(node.text))
+        ]
+        matches.append(
+            JournalMatch(title=title.rstrip("."), abbreviation=abbreviation, issns=issns)
+        )
+    return matches
+
+
 class PubMedClient:
     """Client asynchrone des E-utilities, à utiliser en gestionnaire de contexte."""
 
@@ -204,3 +234,33 @@ class PubMedClient:
                 if parsed is not None:
                     summaries.append(parsed)
         return summaries
+
+    async def resolve_journal(self, name: str, limit: int = 6) -> list[JournalMatch]:
+        """Cherche une revue dans le catalogue NLM et renvoie son abréviation.
+
+        Le vocabulaire vient de la NLM, jamais d'une liste maison.
+        """
+        name = name.strip()
+        if not name:
+            return []
+        search = await self._get(
+            "esearch.fcgi",
+            {
+                "db": "nlmcatalog",
+                # `currentlyindexed` écarte les fiches obsolètes ou non indexées.
+                "term": f'"{name}"[Title] AND currentlyindexed[All]',
+                "retmax": limit,
+                "retmode": "json",
+            },
+        )
+        ids = [str(uid) for uid in search.json().get("esearchresult", {}).get("idlist", [])]
+        if not ids:
+            return []
+
+        # Le JSON d'ESummary laisse `medabbr` vide pour ce dépôt : seul le XML
+        # d'EFetch expose MedlineTA.
+        fetch = await self._get(
+            "efetch.fcgi",
+            {"db": "nlmcatalog", "id": ",".join(ids), "retmode": "xml"},
+        )
+        return parse_nlmcatalog_xml(fetch.text)

@@ -1,0 +1,16 @@
+{% if matches %}
+  <ul class="liste-revues">
+    {% for match in matches %}
+      <li>
+        <span class="revue-titre">{{ match.title }}</span>
+        {% if match.abbreviation %}
+          <code class="a-copier">{{ match.pubmed_fragment }}</code>
+        {% else %}
+          <span class="aide">pas d'abréviation NLM</span>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+{% elif searched %}
+  <p class="aide">Aucune revue indexée ne correspond.</p>
+{% endif %}

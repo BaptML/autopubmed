@@ -1,0 +1,35 @@
+{# Aperçu live : ce que PubMed répond, rapporté sans interprétation. #}
+
+{% if not term %}
+  <span class="apercu-attente">Saisis une chaîne pour voir le nombre de résultats.</span>
+{% elif error %}
+  <div class="apercu-erreur">PubMed n'a pas répondu : {{ error }}</div>
+{% else %}
+  <div class="apercu-ligne">
+    <strong class="apercu-total">{{ "{:,}".format(result.count).replace(",", " ") }}</strong>
+    résultat{{ "s" if result.count > 1 }} sur PubMed
+    <a class="lien-pubmed" href="{{ pubmed_url }}" target="_blank" rel="noopener">
+      ouvrir dans PubMed ↗
+    </a>
+  </div>
+
+  {% if result.translation %}
+    <div class="apercu-traduction">
+      <span class="etiquette">Traduction PubMed</span>
+      <code>{{ result.translation }}</code>
+    </div>
+  {% endif %}
+
+  {% for warning in result.warnings %}
+    <div class="apercu-avertissement">⚠ {{ warning }}</div>
+  {% endfor %}
+  {% for error_message in result.errors %}
+    <div class="apercu-erreur">✕ {{ error_message }}</div>
+  {% endfor %}
+
+  {% if result.count == 0 and not result.errors %}
+    <div class="apercu-avertissement">
+      Aucun résultat. Vérifie l'orthographe des termes et les balises de champ.
+    </div>
+  {% endif %}
+{% endif %}

@@ -14,8 +14,31 @@
     {% else %}
       jamais rafraîchie
     {% endif %}
+    <div class="barre-actions compacte">
+      <button class="bouton" hx-post="/queries/{{ query.id }}/refresh"
+              hx-target="#panneau" hx-swap="innerHTML"
+              hx-indicator="#indicateur-refresh"
+              hx-disabled-elt="this">Rafraîchir</button>
+      <button class="bouton" hx-get="/queries/{{ query.id }}/edit"
+              hx-target="#panneau" hx-swap="innerHTML">Modifier</button>
+    </div>
+    <span id="indicateur-refresh" class="htmx-indicator aide">interrogation de PubMed…</span>
   </div>
 </div>
+
+{% if report %}
+  <div class="rapport-refresh">
+    {{ report.total_hits }} résultat{{ 's' if report.total_hits > 1 }} sur PubMed ·
+    {{ report.kept }} retenu{{ 's' if report.kept > 1 }} ·
+    {{ report.rejected }} écarté{{ 's' if report.rejected > 1 }} par le filtre qualité ·
+    <strong>{{ report.new_links }} nouveau{{ 'x' if report.new_links > 1 }}</strong>
+    {% if report.unmatched_quality %}
+      · {{ report.unmatched_quality }} sans qualité connue
+    {% endif %}
+    {% for warning in report.warnings %}<br>⚠ {{ warning }}{% endfor %}
+    {% for error in report.errors %}<br>✕ {{ error }}{% endfor %}
+  </div>
+{% endif %}
 
 {% if not articles %}
   <p class="vide-message">

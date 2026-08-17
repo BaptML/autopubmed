@@ -1,0 +1,8 @@
+{# Réponse composite : le panneau principal, plus la barre latérale
+   rafraîchie hors bande (compteurs de non-lus, requêtes ajoutées ou
+   supprimées) — en un seul aller-retour. #}
+{% include "_article_list.html" %}
+
+<div hx-swap-oob="innerHTML:#barre-laterale">
+  {% include "_sidebar.html" %}
+</div>

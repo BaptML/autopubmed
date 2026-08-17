@@ -158,6 +158,152 @@ body {
   font-size: 13px;
 }
 
+/* --- Boutons --- */
+.bouton {
+  font: inherit;
+  font-size: 13px;
+  padding: 5px 12px;
+  border: 1px solid var(--bordure);
+  border-radius: 4px;
+  background: var(--fond-panneau);
+  color: var(--texte);
+  cursor: pointer;
+}
+.bouton:hover { border-color: var(--accent); color: var(--accent); }
+.bouton:disabled { opacity: .5; cursor: progress; }
+.bouton.principal {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+.bouton.principal:hover { background: #17496e; color: #fff; }
+.bouton.danger { color: var(--q4); }
+.bouton.danger:hover { border-color: var(--q4); color: var(--q4); }
+
+.nouvelle-requete { margin: 0 18px 16px; width: calc(100% - 36px); }
+
+.barre-actions { display: flex; gap: 8px; margin-top: 18px; }
+.barre-actions.compacte { margin-top: 8px; justify-content: flex-end; }
+
+/* --- Formulaire --- */
+.formulaire { max-width: 720px; margin-top: 18px; }
+
+.champ { margin-bottom: 16px; }
+.champ label {
+  display: block;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.champ input, .champ select, .champ textarea {
+  font: inherit;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--bordure);
+  border-radius: 4px;
+  background: var(--fond-panneau);
+  color: var(--texte);
+}
+.champ textarea {
+  font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
+  font-size: 13px;
+  resize: vertical;
+}
+.champ input:focus, .champ select:focus, .champ textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+
+.aide { font-size: 12px; color: var(--texte-doux); margin: 4px 0 0; }
+
+.grille-filtres {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0 18px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--bordure);
+}
+
+/* --- Aperçu live --- */
+.apercu {
+  background: var(--accent-doux);
+  border: 1px solid #d3e2ee;
+  border-radius: 5px;
+  padding: 11px 13px;
+  font-size: 13px;
+  min-height: 44px;
+}
+.apercu-attente { color: var(--texte-doux); }
+.apercu-ligne { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.apercu-total { font-size: 17px; color: var(--accent); }
+.lien-pubmed { margin-left: auto; color: var(--accent); font-size: 12px; }
+
+.apercu-traduction { margin-top: 8px; }
+.apercu-traduction .etiquette {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--texte-doux);
+  margin-bottom: 2px;
+}
+.apercu-traduction code {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  word-break: break-word;
+  color: #35506a;
+}
+
+.apercu-avertissement { margin-top: 7px; color: var(--q3); }
+.apercu-erreur { margin-top: 7px; color: var(--q4); }
+
+/* --- Rapport de rafraîchissement --- */
+.rapport-refresh {
+  background: #f2f6ea;
+  border: 1px solid #dde5cc;
+  border-radius: 5px;
+  padding: 9px 12px;
+  font-size: 13px;
+  margin: 12px 0;
+}
+
+/* --- Résolveur de revue --- */
+.separateur { border: none; border-top: 1px solid var(--bordure); margin: 26px 0 20px; }
+.resolveur { max-width: 720px; }
+.resolveur label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 4px; }
+.resolveur input {
+  font: inherit;
+  width: 100%;
+  padding: 7px 9px;
+  border: 1px solid var(--bordure);
+  border-radius: 4px;
+}
+
+.liste-revues { list-style: none; padding: 0; margin: 10px 0 0; }
+.liste-revues li {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--bordure);
+  font-size: 13px;
+}
+.revue-titre { flex: 1; }
+.a-copier {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 12px;
+  background: #f0eee9;
+  border: 1px solid var(--bordure);
+  border-radius: 3px;
+  padding: 2px 7px;
+  user-select: all;      /* un clic sélectionne tout le fragment à copier */
+  white-space: nowrap;
+}
+
 /* Indicateur de chargement HTMX */
 .htmx-indicator { opacity: 0; transition: opacity .2s; }
 .htmx-request .htmx-indicator { opacity: 1; }
+.htmx-request.htmx-indicator { opacity: 1; }

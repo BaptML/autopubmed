@@ -2,7 +2,33 @@
 
 import pytest
 
-from app.pubmed import parse_esearch, parse_esummary_entry, parse_pub_date
+from app.pubmed import (
+    parse_esearch,
+    parse_esummary_entry,
+    parse_nlmcatalog_xml,
+    parse_pub_date,
+)
+
+# Extrait réel d'EFetch db=nlmcatalog : c'est MedlineTA qui porte
+# l'abréviation attendue par [ta].
+NLMCATALOG_XML = """<?xml version="1.0"?>
+<NLMCatalogRecordSet>
+  <NLMCatalogRecord>
+    <NlmUniqueID>255562</NlmUniqueID>
+    <TitleMain><Title>The New England journal of medicine.</Title></TitleMain>
+    <MedlineTA>N Engl J Med</MedlineTA>
+    <ISSNList>
+      <ISSN ValidYN="Y" IssnType="Print">0028-4793</ISSN>
+      <ISSN ValidYN="Y" IssnType="Electronic">1533-4406</ISSN>
+    </ISSNList>
+  </NLMCatalogRecord>
+  <NLMCatalogRecord>
+    <NlmUniqueID>101760264</NlmUniqueID>
+    <TitleMain><Title>NEJM catalyst innovations in care delivery.</Title></TitleMain>
+    <MedlineTA>NEJM Catal Innov Care Deliv</MedlineTA>
+    <ISSNList><ISSN IssnType="Electronic">2642-0007</ISSN></ISSNList>
+  </NLMCatalogRecord>
+</NLMCatalogRecordSet>"""
 
 # Entrée ESummary réelle (structure allégée aux champs utilisés).
 NEJM_ENTRY = {
@@ -101,3 +127,20 @@ def test_parse_esearch_remonte_les_avertissements_de_pubmed() -> None:
 def test_parse_esearch_vide() -> None:
     result = parse_esearch({})
     assert result.count == 0 and result.pmids == []
+
+
+def test_parse_nlmcatalog_resout_le_piege_nejm() -> None:
+    matches = parse_nlmcatalog_xml(NLMCATALOG_XML)
+    assert len(matches) == 2
+
+    nejm = matches[0]
+    assert nejm.title == "The New England journal of medicine"  # point final retiré
+    assert nejm.abbreviation == "N Engl J Med"
+    # Le fragment est prêt à coller dans une requête PubMed.
+    assert nejm.pubmed_fragment == '"N Engl J Med"[ta]'
+    assert nejm.issns == ["00284793", "15334406"]
+
+
+def test_parse_nlmcatalog_xml_invalide() -> None:
+    assert parse_nlmcatalog_xml("pas du xml") == []
+    assert parse_nlmcatalog_xml("") == []

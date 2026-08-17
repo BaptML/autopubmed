@@ -45,15 +45,19 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
         repo.mark_refreshed(conn, query_id)
 
     def override() -> Iterator:
+        # Reproduit fidèlement get_db, commit compris : sans lui, les tests
+        # d'écriture passeraient à tort (la réponse relit la même connexion).
         conn = connect(db_path)
         try:
             yield conn
+            conn.commit()
         finally:
             conn.close()
 
     app.dependency_overrides[get_db] = override
     with TestClient(app) as test_client:
         test_client.query_id = query_id  # type: ignore[attr-defined]
+        test_client.db_path = db_path  # type: ignore[attr-defined]
         yield test_client
     app.dependency_overrides.clear()
 
@@ -95,6 +99,125 @@ def test_liste_vide_explique_comment_la_remplir(client: TestClient) -> None:
 
 def test_requete_inexistante_renvoie_404(client: TestClient) -> None:
     assert client.get("/queries/999/articles").status_code == 404
+
+
+def test_formulaire_de_creation(client: TestClient) -> None:
+    response = client.get("/queries/new")
+    assert response.status_code == 200
+    assert 'hx-post="/queries/new"' in response.text
+    # L'aperçu live est câblé avec un anti-rebond, pas à chaque frappe.
+    assert 'hx-trigger="keyup changed delay:500ms, load"' in response.text
+    assert "Références" in response.text  # dossier existant proposé
+
+
+def test_creation_conserve_la_chaine_pubmed_a_l_identique(client: TestClient) -> None:
+    # Règle absolue : la chaîne brute est la source de vérité, jamais réécrite.
+    brute = '  ("heart failure"[MeSH Terms] OR HFpEF[tiab]) AND 2024:2026[dp]  '
+    response = client.post(
+        "/queries/new",
+        data={
+            "name": "Nouvelle veille",
+            "pubmed_query": brute,
+            "folder": "Cardiologie",
+            "quartile_min": "2",
+            "citedness_min": "",
+            "sort": "date_desc",
+        },
+    )
+    assert response.status_code == 200
+
+    with get_conn(client.db_path) as conn:
+        created = [q for q in repo.list_queries(conn) if q.name == "Nouvelle veille"][0]
+    assert created.pubmed_query == brute.strip()  # seuls les espaces de bord sautent
+    assert created.quartile_min == 2
+    assert created.citedness_min is None  # champ vide = pas de filtre, pas zéro
+
+
+def test_creation_rafraichit_la_barre_laterale_hors_bande(client: TestClient) -> None:
+    response = client.post(
+        "/queries/new",
+        data={"name": "Veille B", "pubmed_query": "x[tiab]", "folder": "Autre",
+              "quartile_min": "", "citedness_min": "", "sort": "date_desc"},
+    )
+    # Un seul aller-retour met à jour le panneau et la colonne de gauche.
+    assert 'hx-swap-oob="innerHTML:#barre-laterale"' in response.text
+    assert "Veille B" in response.text
+
+
+def test_edition_met_a_jour_sans_toucher_aux_articles(client: TestClient) -> None:
+    query_id = client.query_id
+    response = client.post(
+        f"/queries/{query_id}/edit",
+        data={"name": "Renommée", "pubmed_query": '"N Engl J Med"[ta]',
+              "folder": "Références", "quartile_min": "", "citedness_min": "3,5",
+              "sort": "journal"},
+    )
+    assert response.status_code == 200
+    assert "Semaglutide in Heart Failure" in response.text  # article conservé
+
+    with get_conn(client.db_path) as conn:
+        query = repo.get_query(conn, query_id)
+    assert query.name == "Renommée"
+    assert query.quartile_min is None
+    assert query.citedness_min == 3.5  # virgule décimale acceptée
+    assert query.sort == "journal"
+
+
+def test_suppression_retire_la_requete_et_garde_les_articles(client: TestClient) -> None:
+    response = client.delete(f"/queries/{client.query_id}")
+    assert response.status_code == 200
+    assert "Requête supprimée" in response.text
+
+    with get_conn(client.db_path) as conn:
+        assert repo.get_query(conn, client.query_id) is None
+        # L'article reste en cache pour les autres requêtes.
+        assert repo.get_article_summary(conn, "40000001") is not None
+
+
+def test_apercu_sans_chaine_n_appelle_pas_pubmed(client: TestClient) -> None:
+    response = client.get("/preview")
+    assert response.status_code == 200
+    assert "Saisis une chaîne" in response.text
+
+
+def test_apercu_rapporte_le_decompte_et_la_traduction(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr("app.main.PubMedClient", lambda: FakePubMedClient())
+    response = client.get("/preview", params={"pubmed_query": '"N Engl J Med"[ta]'})
+    assert response.status_code == 200
+    assert "1 234" in response.text  # séparateur de milliers français
+    assert "[Journal]" in response.text  # QueryTranslation rendue par PubMed
+    assert "⚠" in response.text  # avertissement PubMed remonté tel quel
+    # Lien aller-retour vers l'Advanced Search Builder.
+    assert "https://pubmed.ncbi.nlm.nih.gov/?term=" in response.text
+
+
+def test_resolveur_ignore_les_termes_trop_courts(client: TestClient) -> None:
+    response = client.get("/journals/resolve", params={"q": "ne"})
+    assert response.status_code == 200
+    assert "<li>" not in response.text
+
+
+class FakePubMedClient:
+    """Simule PubMedClient pour les routes qui appellent PubMed."""
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return None
+
+    async def esearch(self, term, *, reldate_days=None, retmax=None):
+        from app.models import ESearchResult
+
+        return ESearchResult(
+            pmids=[],
+            count=1234,
+            translation='"N Engl J Med"[Journal]',
+            warnings=["terme ignoré : blabla"],
+            errors=[],
+        )
 
 
 @pytest.mark.parametrize(

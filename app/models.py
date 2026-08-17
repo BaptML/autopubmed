@@ -46,6 +46,20 @@ class ESearchResult:
 
 
 @dataclass(frozen=True, slots=True)
+class JournalMatch:
+    """Revue du catalogue NLM. `abbreviation` est ce que PubMed attend en [ta]."""
+
+    title: str
+    abbreviation: str | None
+    issns: list[str]
+
+    @property
+    def pubmed_fragment(self) -> str:
+        """Fragment prêt à coller dans une requête."""
+        return f'"{self.abbreviation or self.title}"[ta]'
+
+
+@dataclass(frozen=True, slots=True)
 class SavedQuery:
     """Requête sauvegardée, telle que stockée en base."""
 

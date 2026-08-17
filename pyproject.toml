@@ -10,6 +10,8 @@ dependencies = [
     "httpx>=0.28",
     "apscheduler>=3.11",
     "python-dotenv>=1.0",
+    # Exigé par FastAPI pour lire les formulaires HTML (écran de création).
+    "python-multipart>=0.0.20",
 ]
 
 [dependency-groups]

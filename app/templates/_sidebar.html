@@ -1,5 +1,10 @@
 <h1 class="titre-app">Veille <span>PubMed</span></h1>
 
+<button class="bouton nouvelle-requete"
+        hx-get="/queries/new" hx-target="#panneau" hx-swap="innerHTML">
+  + Nouvelle requête
+</button>
+
 {% if not folders %}
   <p class="vide-message" style="padding: 20px 18px; text-align: left;">
     Aucune requête enregistrée.

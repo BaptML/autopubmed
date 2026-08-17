@@ -62,6 +62,39 @@ def list_queries(conn: sqlite3.Connection) -> list[SavedQuery]:
     return [_to_query(row) for row in rows]
 
 
+def update_query(
+    conn: sqlite3.Connection,
+    query_id: int,
+    *,
+    name: str,
+    pubmed_query: str,
+    folder: str,
+    quartile_min: int | None,
+    citedness_min: float | None,
+    sort: str,
+) -> None:
+    """Met à jour une requête. La chaîne PubMed est enregistrée telle quelle."""
+    conn.execute(
+        "UPDATE queries SET name = ?, folder = ?, pubmed_query = ?, "
+        "quartile_min = ?, citedness_min = ?, sort = ? WHERE id = ?",
+        (name, folder, pubmed_query, quartile_min, citedness_min, sort, query_id),
+    )
+
+
+def delete_query(conn: sqlite3.Connection, query_id: int) -> None:
+    """Supprime une requête et ses rattachements ; les articles restent en cache."""
+    conn.execute("DELETE FROM query_articles WHERE query_id = ?", (query_id,))
+    conn.execute("DELETE FROM queries WHERE id = ?", (query_id,))
+
+
+def list_folders(conn: sqlite3.Connection) -> list[str]:
+    """Dossiers existants, pour proposer l'auto-complétion du formulaire."""
+    rows = conn.execute(
+        "SELECT DISTINCT folder FROM queries ORDER BY folder COLLATE NOCASE"
+    ).fetchall()
+    return [row["folder"] for row in rows]
+
+
 def mark_refreshed(conn: sqlite3.Connection, query_id: int) -> None:
     conn.execute(
         "UPDATE queries SET last_refreshed_at = ? WHERE id = ?",
