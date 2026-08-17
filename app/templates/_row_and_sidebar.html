@@ -1,0 +1,7 @@
+{# Réponse composite : la ligne d'article rejouée, plus la barre latérale hors
+   bande — le compteur de non-lus suit le marquage sans recharger la liste. #}
+{% include "_article_row.html" %}
+
+<div hx-swap-oob="innerHTML:#barre-laterale">
+  {% include "_sidebar.html" %}
+</div>

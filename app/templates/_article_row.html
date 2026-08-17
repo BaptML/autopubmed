@@ -1,0 +1,38 @@
+{% import "_macros.html" as macros %}
+
+{# Une ligne d'article. Rendue seule après un changement d'état de lecture,
+   d'où l'identifiant stable et le remplacement par outerHTML. #}
+<article class="article{{ ' non-lu' if not article.read }}"
+         id="article-{{ article.query_id }}-{{ article.pmid }}">
+  <h3>
+    <a href="{{ article.url }}" target="_blank" rel="noopener">{{ article.title }}</a>
+  </h3>
+  <div class="ligne-meta">
+    {% if article.is_new %}
+      <span class="badge nouveau" title="Apparu depuis la dernière ouverture de l'application">nouveau</span>
+    {% endif %}
+    <span class="revue">{{ article.journal or "revue inconnue" }}</span>
+    {{ macros.badge_quartile(article.quartile) }}
+    <span>{{ article.pub_date|date_fr }}</span>
+    <span>PMID {{ article.pmid }}</span>
+    <button class="bouton lien-lecture"
+            hx-post="/articles/{{ article.pmid }}/read"
+            hx-vals='{"query_id": {{ article.query_id }}, "read": {{ 0 if article.read else 1 }}}'
+            hx-target="#article-{{ article.query_id }}-{{ article.pmid }}"
+            hx-swap="outerHTML">
+      {{ "marquer non lu" if article.read else "marquer lu" }}
+    </button>
+  </div>
+
+  {# Le résumé n'est récupéré qu'au premier dépliage (efetch), puis mis en
+     cache : les rafraîchissements restent légers. #}
+  <details class="bloc-resume">
+    <summary>Résumé</summary>
+    <div class="resume-contenu"
+         hx-get="/articles/{{ article.pmid }}/abstract"
+         hx-trigger="toggle from:closest details once"
+         hx-target="this" hx-swap="innerHTML">
+      <span class="aide">chargement du résumé…</span>
+    </div>
+  </details>
+</article>

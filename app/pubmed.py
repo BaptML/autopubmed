@@ -153,6 +153,29 @@ def parse_nlmcatalog_xml(xml: str) -> list[JournalMatch]:
     return matches
 
 
+def parse_abstract_xml(xml: str) -> str | None:
+    """Assemble le résumé d'un article à partir du XML d'EFetch.
+
+    Les résumés structurés arrivent en plusieurs `AbstractText` étiquetés
+    (BACKGROUND, METHODS…) : on les concatène en paragraphes séparés par une
+    ligne vide, en gardant l'étiquette. `itertext` récupère le texte des
+    balises internes (<i>, <sup>).
+    """
+    try:
+        root = ElementTree.fromstring(xml)
+    except ElementTree.ParseError:
+        return None
+
+    paragraphs: list[str] = []
+    for node in root.iter("AbstractText"):
+        text = " ".join("".join(node.itertext()).split())
+        if not text:
+            continue
+        label = (node.get("Label") or "").strip()
+        paragraphs.append(f"{label} : {text}" if label else text)
+    return "\n\n".join(paragraphs) or None
+
+
 class PubMedClient:
     """Client asynchrone des E-utilities, à utiliser en gestionnaire de contexte."""
 
@@ -234,6 +257,19 @@ class PubMedClient:
                 if parsed is not None:
                     summaries.append(parsed)
         return summaries
+
+    async def efetch_abstract(self, pmid: str) -> str | None:
+        """Récupère le résumé d'un seul article, à la demande.
+
+        Jamais appelé pendant un rafraîchissement : c'est le dépliage d'un
+        article dans l'interface qui le déclenche, et le résultat est ensuite
+        mis en cache en base.
+        """
+        response = await self._get(
+            "efetch.fcgi",
+            {"db": "pubmed", "id": pmid, "retmode": "xml", "rettype": "abstract"},
+        )
+        return parse_abstract_xml(response.text)
 
     async def resolve_journal(self, name: str, limit: int = 6) -> list[JournalMatch]:
         """Cherche une revue dans le catalogue NLM et renvoie son abréviation.

@@ -163,6 +163,19 @@ def get_article_summary(conn: sqlite3.Connection, pmid: str) -> ArticleSummary |
 # --- Lien requête ↔ article ---------------------------------------------
 
 
+def get_abstract(conn: sqlite3.Connection, pmid: str) -> str | None:
+    """Résumé déjà en cache, ou None s'il n'a jamais été récupéré."""
+    row = conn.execute(
+        "SELECT abstract FROM articles WHERE pmid = ?", (pmid,)
+    ).fetchone()
+    return row["abstract"] if row else None
+
+
+def set_abstract(conn: sqlite3.Connection, pmid: str, abstract: str | None) -> None:
+    """Met le résumé en cache après un efetch."""
+    conn.execute("UPDATE articles SET abstract = ? WHERE pmid = ?", (abstract, pmid))
+
+
 def link_article(conn: sqlite3.Connection, query_id: int, pmid: str) -> bool:
     """Rattache un article à une requête. True si c'est une nouvelle paire.
 
@@ -213,25 +226,57 @@ def folders_with_queries(conn: sqlite3.Connection) -> list[dict]:
     return [{"name": name, "queries": queries} for name, queries in folders.items()]
 
 
+def _article_select(where: str, order_by: str) -> str:
+    """Fabrique la requête de lecture d'articles, seule forme utilisée par l'UI.
+
+    `is_new` compare `first_seen` à l'ouverture précédente de l'application :
+    les horodatages sont des chaînes ISO en UTC, donc comparables telles quelles.
+    """
+    return f"""
+        SELECT a.pmid, a.title, a.journal, a.pub_date, a.url,
+               a.abstract IS NOT NULL AS has_abstract,
+               qa.read, qa.first_seen, qa.query_id,
+               (? IS NOT NULL AND qa.first_seen > ?) AS is_new,
+               {_QUARTILE_SUBQUERY}
+        FROM query_articles qa
+        JOIN articles a ON a.pmid = qa.pmid
+        WHERE {where}
+        ORDER BY {order_by}
+    """
+
+
 def list_articles_for_query(
-    conn: sqlite3.Connection, query_id: int, sort: str = "date_desc"
+    conn: sqlite3.Connection,
+    query_id: int,
+    sort: str = "date_desc",
+    new_since: str | None = None,
 ) -> list[dict]:
     """Articles d'une requête, tels quels depuis le cache — aucun appel réseau."""
     order_by = _SORT_CLAUSES.get(sort, _SORT_CLAUSES["date_desc"])
     rows = conn.execute(
-        f"""
-        SELECT a.pmid, a.title, a.journal, a.pub_date, a.url,
-               a.abstract IS NOT NULL AS has_abstract,
-               qa.read, qa.first_seen,
-               {_QUARTILE_SUBQUERY}
-        FROM query_articles qa
-        JOIN articles a ON a.pmid = qa.pmid
-        WHERE qa.query_id = ?
-        ORDER BY {order_by}
-        """,
-        (query_id,),
+        _article_select("qa.query_id = ?", order_by),
+        (new_since, new_since, query_id),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_article_row(
+    conn: sqlite3.Connection, query_id: int, pmid: str, new_since: str | None = None
+) -> dict | None:
+    """Une seule ligne d'article, pour la re-rendre après un changement d'état."""
+    row = conn.execute(
+        _article_select("qa.query_id = ? AND qa.pmid = ?", "a.pmid"),
+        (new_since, new_since, query_id, pmid),
+    ).fetchone()
+    return dict(row) if row else None
+
+
+def set_read(conn: sqlite3.Connection, query_id: int, pmid: str, read: bool) -> None:
+    """Marque un article lu ou non lu. Le suivi est propre à chaque requête."""
+    conn.execute(
+        "UPDATE query_articles SET read = ? WHERE query_id = ? AND pmid = ?",
+        (1 if read else 0, query_id, pmid),
+    )
 
 
 def count_unread(conn: sqlite3.Connection, query_id: int) -> int:
@@ -240,6 +285,37 @@ def count_unread(conn: sqlite3.Connection, query_id: int) -> int:
         (query_id,),
     ).fetchone()
     return int(row["n"])
+
+
+# --- État de l'application ----------------------------------------------
+
+LAST_OPENED_KEY = "last_opened_at"
+
+
+def get_app_state(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
+    return row["value"] if row else None
+
+
+def set_app_state(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?) "
+        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
+        "updated_at = excluded.updated_at",
+        (key, value, utcnow_iso()),
+    )
+
+
+def record_app_opening(conn: sqlite3.Connection) -> str | None:
+    """Note l'ouverture de l'application et renvoie la précédente.
+
+    C'est cette date précédente qui départage les articles « nouveaux » : ceux
+    apparus pendant que l'application était fermée. Elle vaut None au tout
+    premier lancement — aucun article n'est alors signalé comme nouveau.
+    """
+    previous = get_app_state(conn, LAST_OPENED_KEY)
+    set_app_state(conn, LAST_OPENED_KEY, utcnow_iso())
+    return previous
 
 
 # --- Qualité des revues --------------------------------------------------

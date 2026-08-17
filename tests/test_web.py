@@ -174,6 +174,103 @@ def test_suppression_retire_la_requete_et_garde_les_articles(client: TestClient)
         assert repo.get_article_summary(conn, "40000001") is not None
 
 
+def test_article_non_lu_est_mis_en_evidence(client: TestClient) -> None:
+    response = client.get(f"/queries/{client.query_id}/articles")
+    assert 'class="article non-lu"' in response.text
+    assert "marquer lu" in response.text
+
+
+def test_marquage_lu_bascule_et_met_a_jour_le_compteur(client: TestClient) -> None:
+    response = client.post(
+        "/articles/40000001/read",
+        data={"query_id": client.query_id, "read": 1},
+    )
+    assert response.status_code == 200
+    # La ligne rejouée n'est plus en évidence et propose la bascule inverse.
+    assert 'class="article"' in response.text
+    assert "marquer non lu" in response.text
+    # Le compteur de non-lus suit, hors bande.
+    assert 'hx-swap-oob="innerHTML:#barre-laterale"' in response.text
+    assert '<span class="compteur vide">0</span>' in response.text
+
+    with get_conn(client.db_path) as conn:
+        assert repo.count_unread(conn, client.query_id) == 0
+
+    # Retour à non lu.
+    retour = client.post(
+        "/articles/40000001/read", data={"query_id": client.query_id, "read": 0}
+    )
+    assert 'class="article non-lu"' in retour.text
+
+
+def test_article_nouveau_depuis_la_derniere_ouverture(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # L'article a été vu pour la première fois après l'ouverture précédente.
+    monkeypatch.setattr(app.state, "new_since", "2020-01-01T00:00:00+00:00")
+    assert "nouveau" in client.get(f"/queries/{client.query_id}/articles").text
+
+    # Rien de nouveau si l'application a déjà été ouverte depuis.
+    monkeypatch.setattr(app.state, "new_since", "2099-01-01T00:00:00+00:00")
+    assert 'class="badge nouveau"' not in client.get(
+        f"/queries/{client.query_id}/articles"
+    ).text
+
+
+def test_premiere_ouverture_ne_signale_aucun_nouveau(client: TestClient) -> None:
+    # Au tout premier lancement il n'y a pas d'ouverture précédente : rien n'est
+    # signalé comme nouveau, et l'ouverture est enregistrée pour la prochaine fois.
+    assert 'class="badge nouveau"' not in client.get(
+        f"/queries/{client.query_id}/articles"
+    ).text
+    with get_conn(client.db_path) as conn:
+        assert repo.get_app_state(conn, repo.LAST_OPENED_KEY) is not None
+
+
+def test_resume_efetch_a_la_demande_puis_cache(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakePubMedClient()
+    monkeypatch.setattr("app.main.PubMedClient", lambda: fake)
+
+    response = client.get("/articles/40000001/abstract")
+    assert response.status_code == 200
+    assert "OBJECTIF : Évaluer le sémaglutide." in response.text
+    assert "RÉSULTATS : Amélioration nette." in response.text
+    assert fake.efetch_calls == 1
+
+    # Deuxième dépliage : servi depuis la base, sans rappeler PubMed.
+    again = client.get("/articles/40000001/abstract")
+    assert "OBJECTIF : Évaluer le sémaglutide." in again.text
+    assert fake.efetch_calls == 1
+
+    with get_conn(client.db_path) as conn:
+        assert repo.get_abstract(conn, "40000001") is not None
+
+
+def test_resume_absent_est_memorise_pour_ne_pas_rappeler_pubmed(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fake = FakePubMedClient(abstract=None)
+    monkeypatch.setattr("app.main.PubMedClient", lambda: fake)
+
+    assert "Aucun résumé disponible" in client.get("/articles/40000001/abstract").text
+    client.get("/articles/40000001/abstract")
+    assert fake.efetch_calls == 1  # l'absence de résumé est elle aussi en cache
+
+
+def test_resume_d_un_article_inconnu_renvoie_404(client: TestClient) -> None:
+    assert client.get("/articles/99999999/abstract").status_code == 404
+
+
+def test_le_rafraichissement_ne_recupere_aucun_resume(client: TestClient) -> None:
+    # Garde-fou : la liste ne doit jamais contenir le résumé, seulement de quoi
+    # le demander. Le pipeline reste léger et poli.
+    response = client.get(f"/queries/{client.query_id}/articles")
+    assert 'hx-get="/articles/40000001/abstract"' in response.text
+    assert 'hx-trigger="toggle from:closest details once"' in response.text
+
+
 def test_apercu_sans_chaine_n_appelle_pas_pubmed(client: TestClient) -> None:
     response = client.get("/preview")
     assert response.status_code == 200
@@ -202,11 +299,22 @@ def test_resolveur_ignore_les_termes_trop_courts(client: TestClient) -> None:
 class FakePubMedClient:
     """Simule PubMedClient pour les routes qui appellent PubMed."""
 
+    def __init__(
+        self, abstract: str | None = "OBJECTIF : Évaluer le sémaglutide.\n\n"
+        "RÉSULTATS : Amélioration nette.",
+    ) -> None:
+        self._abstract = abstract
+        self.efetch_calls = 0
+
     async def __aenter__(self):
         return self
 
     async def __aexit__(self, *_exc):
         return None
+
+    async def efetch_abstract(self, pmid: str) -> str | None:
+        self.efetch_calls += 1
+        return self._abstract
 
     async def esearch(self, term, *, reldate_days=None, retmax=None):
         from app.models import ESearchResult

@@ -58,6 +58,14 @@ CREATE TABLE IF NOT EXISTS journal_quality (
     updated_at   TEXT NOT NULL
 );
 
+-- État de l'application, en clé/valeur. Sert à retenir l'horodatage de la
+-- dernière ouverture : les articles apparus après celle-ci sont « nouveaux ».
+CREATE TABLE IF NOT EXISTS app_state (
+    key        TEXT PRIMARY KEY,
+    value      TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_queries_folder        ON queries(folder);
 CREATE INDEX IF NOT EXISTS idx_articles_issn         ON articles(issn);
 CREATE INDEX IF NOT EXISTS idx_articles_eissn        ON articles(eissn);

@@ -1,0 +1,17 @@
+{# Résumé d'un article. Les sections d'un résumé structuré sont séparées par
+   une ligne vide en amont (voir parse_abstract_xml). #}
+{% if error %}
+  <p class="apercu-erreur">PubMed n'a pas répondu : {{ error }}</p>
+  <p class="aide">Referme et rouvre le résumé pour réessayer.</p>
+{% elif abstract %}
+  {% for paragraph in abstract.split("\n\n") %}
+    <p class="resume-paragraphe">{{ paragraph }}</p>
+  {% endfor %}
+  <p class="aide">
+    <a href="https://pubmed.ncbi.nlm.nih.gov/{{ pmid }}/" target="_blank" rel="noopener">
+      Voir la fiche complète sur PubMed
+    </a>
+  </p>
+{% else %}
+  <p class="aide">Aucun résumé disponible pour cet article.</p>
+{% endif %}

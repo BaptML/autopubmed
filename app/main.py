@@ -52,9 +52,15 @@ def date_fr(value: str | None) -> str:
     return rendered
 
 
+_UNSET = object()  # frontière du « nouveau » pas encore déterminée
+
+
 @asynccontextmanager
-async def lifespan(_app: FastAPI):
+async def lifespan(app_: FastAPI):
     init_db()
+    # La frontière est fixée à la première requête servie, avec la connexion de
+    # celle-ci (voir _new_since), puis figée pour toute la session.
+    app_.state.new_since = _UNSET
     yield
 
 
@@ -86,6 +92,20 @@ def _optional_float(raw: str | None) -> float | None:
     return float(raw) if raw else None
 
 
+def _new_since(request: Request, conn: sqlite3.Connection) -> str | None:
+    """Frontière du « nouveau » : l'ouverture précédente de l'application.
+
+    Déterminée une seule fois, à la première requête servie, pour que le
+    signalement ne se déplace pas sous les yeux de l'utilisateur pendant sa
+    session. Vaut None au tout premier lancement.
+    """
+    state = request.app.state
+    if getattr(state, "new_since", _UNSET) is _UNSET:
+        state.new_since = repo.record_app_opening(conn)
+        conn.commit()
+    return state.new_since
+
+
 def _panel_and_sidebar(
     request: Request, conn: sqlite3.Connection, query_id: int, report: Any = None
 ) -> HTMLResponse:
@@ -98,7 +118,9 @@ def _panel_and_sidebar(
         "_panel_and_sidebar.html",
         {
             "query": query,
-            "articles": repo.list_articles_for_query(conn, query_id, query.sort),
+            "articles": repo.list_articles_for_query(
+                conn, query_id, query.sort, new_since=_new_since(request, conn)
+            ),
             "folders": repo.folders_with_queries(conn),
             "report": report,
         },
@@ -148,7 +170,9 @@ def query_articles(
         "_article_list.html",
         {
             "query": query,
-            "articles": repo.list_articles_for_query(conn, query_id, query.sort),
+            "articles": repo.list_articles_for_query(
+                conn, query_id, query.sort, new_since=_new_since(request, conn)
+            ),
             "report": None,
         },
     )
@@ -247,7 +271,61 @@ async def refresh(
     return _panel_and_sidebar(request, conn, query_id, report=report)
 
 
+@app.post("/articles/{pmid}/read", response_class=HTMLResponse)
+def toggle_read(
+    request: Request,
+    pmid: str,
+    query_id: int = Form(...),
+    read: int = Form(...),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> HTMLResponse:
+    """Bascule l'état de lecture. Le suivi est propre à chaque requête."""
+    repo.set_read(conn, query_id, pmid, read=bool(read))
+    conn.commit()
+    article = repo.get_article_row(conn, query_id, pmid, new_since=_new_since(request, conn))
+    if article is None:
+        raise HTTPException(status_code=404, detail="Article introuvable")
+    return templates.TemplateResponse(
+        request,
+        "_row_and_sidebar.html",
+        {"article": article, "folders": repo.folders_with_queries(conn)},
+    )
+
+
 # --- Appels délégués à PubMed --------------------------------------------
+
+
+@app.get("/articles/{pmid}/abstract", response_class=HTMLResponse)
+async def article_abstract(
+    request: Request, pmid: str, conn: sqlite3.Connection = Depends(get_db)
+) -> HTMLResponse:
+    """Résumé à la demande : efetch au premier dépliage, puis cache.
+
+    Le rafraîchissement ne récupère jamais les résumés ; c'est ici, et
+    seulement ici, qu'ils entrent en base.
+    """
+    if repo.get_article_summary(conn, pmid) is None:
+        raise HTTPException(status_code=404, detail="Article introuvable")
+
+    abstract = repo.get_abstract(conn, pmid)
+    error: str | None = None
+    if abstract is None:
+        try:
+            async with PubMedClient() as pubmed:
+                abstract = await pubmed.efetch_abstract(pmid)
+        except httpx.HTTPError as exc:
+            error = str(exc) or exc.__class__.__name__
+        else:
+            # Un article sans résumé (éditorial, lettre) est mis en cache comme
+            # chaîne vide : inutile de rappeler PubMed à chaque dépliage.
+            repo.set_abstract(conn, pmid, abstract or "")
+            conn.commit()
+
+    return templates.TemplateResponse(
+        request,
+        "_abstract.html",
+        {"pmid": pmid, "abstract": abstract, "error": error},
+    )
 
 
 @app.get("/preview", response_class=HTMLResponse)

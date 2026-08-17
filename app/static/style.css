@@ -113,6 +113,14 @@ body {
   padding: 14px 0;
   border-bottom: 1px solid var(--bordure);
 }
+/* Non lu : c'est le seul critère de mise en évidence d'un article. */
+.article.non-lu {
+  background: var(--accent-doux);
+  box-shadow: inset 3px 0 0 var(--accent);
+  padding-left: 12px;
+  margin-left: -12px;
+  padding-right: 12px;
+}
 .article h3 {
   font-size: 15px;
   font-weight: 600;
@@ -145,6 +153,35 @@ body {
 .badge.q3 { background: var(--q3); }
 .badge.q4 { background: var(--q4); }
 .badge.nc  { background: var(--non-classe); }
+/* Apparu depuis l'ouverture précédente de l'application. */
+.badge.nouveau { background: var(--accent); text-transform: uppercase; }
+
+.lien-lecture {
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+/* --- Résumé à la demande --- */
+.bloc-resume { margin-top: 8px; }
+.bloc-resume summary {
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--accent);
+  width: fit-content;
+}
+.bloc-resume summary::marker { color: var(--texte-doux); }
+.resume-contenu {
+  padding: 6px 0 2px 14px;
+  border-left: 2px solid var(--bordure);
+  margin-top: 6px;
+}
+.resume-paragraphe {
+  margin: 0 0 8px;
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 70ch;
+}
 
 .vide-message {
   color: var(--texte-doux);

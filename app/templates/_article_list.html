@@ -1,5 +1,3 @@
-{% import "_macros.html" as macros %}
-
 <div class="entete-liste">
   <div>
     <h1>{{ query.name }}</h1>
@@ -48,15 +46,5 @@
 {% endif %}
 
 {% for article in articles %}
-  <article class="article">
-    <h3>
-      <a href="{{ article.url }}" target="_blank" rel="noopener">{{ article.title }}</a>
-    </h3>
-    <div class="ligne-meta">
-      <span class="revue">{{ article.journal or "revue inconnue" }}</span>
-      {{ macros.badge_quartile(article.quartile) }}
-      <span>{{ article.pub_date|date_fr }}</span>
-      <span>PMID {{ article.pmid }}</span>
-    </div>
-  </article>
+  {% include "_article_row.html" %}
 {% endfor %}

@@ -3,11 +3,24 @@
 import pytest
 
 from app.pubmed import (
+    parse_abstract_xml,
     parse_esearch,
     parse_esummary_entry,
     parse_nlmcatalog_xml,
     parse_pub_date,
 )
+
+# Extrait réel d'EFetch db=pubmed : résumé structuré, avec balises internes.
+ABSTRACT_XML = """<?xml version="1.0"?>
+<PubmedArticleSet><PubmedArticle><MedlineCitation><Article>
+  <ArticleTitle>Semaglutide in Heart Failure</ArticleTitle>
+  <Abstract>
+    <AbstractText Label="BACKGROUND" NlmCategory="BACKGROUND">Obesity-related
+      HFpEF is common.</AbstractText>
+    <AbstractText Label="RESULTS">Weight loss reached 13.3<sup>%</sup> at
+      52 weeks.</AbstractText>
+  </Abstract>
+</Article></MedlineCitation></PubmedArticle></PubmedArticleSet>"""
 
 # Extrait réel d'EFetch db=nlmcatalog : c'est MedlineTA qui porte
 # l'abréviation attendue par [ta].
@@ -144,3 +157,22 @@ def test_parse_nlmcatalog_resout_le_piege_nejm() -> None:
 def test_parse_nlmcatalog_xml_invalide() -> None:
     assert parse_nlmcatalog_xml("pas du xml") == []
     assert parse_nlmcatalog_xml("") == []
+
+
+def test_parse_abstract_xml_garde_les_sections_et_leurs_etiquettes() -> None:
+    sections = parse_abstract_xml(ABSTRACT_XML).split("\n\n")
+    assert sections[0] == "BACKGROUND : Obesity-related HFpEF is common."
+    # Le texte des balises internes (<sup>) est conservé, sur une seule ligne.
+    assert sections[1] == "RESULTS : Weight loss reached 13.3% at 52 weeks."
+
+
+def test_parse_abstract_xml_sans_etiquette() -> None:
+    xml = "<PubmedArticleSet><Abstract><AbstractText>Texte simple.</AbstractText>" \
+          "</Abstract></PubmedArticleSet>"
+    assert parse_abstract_xml(xml) == "Texte simple."
+
+
+def test_parse_abstract_xml_sans_resume_ni_xml_valide() -> None:
+    # Éditoriaux et lettres n'ont pas de résumé : None, pas une erreur.
+    assert parse_abstract_xml("<PubmedArticleSet></PubmedArticleSet>") is None
+    assert parse_abstract_xml("pas du xml") is None
