@@ -9,8 +9,11 @@
 </head>
 <body>
   <div class="mise-en-page">
+    {# Relecture périodique : le job de fond remplit le cache pendant la
+       session, les compteurs de non-lus doivent suivre. Simple lecture en
+       base, aucun appel à PubMed. #}
     <aside class="barre-laterale" id="barre-laterale"
-           hx-get="/queries" hx-trigger="load" hx-swap="innerHTML">
+           hx-get="/queries" hx-trigger="load, every 120s" hx-swap="innerHTML">
     </aside>
 
     <main class="panneau" id="panneau">
@@ -21,12 +24,25 @@
   <script>
     // Surbrillance de la requête ouverte. État purement visuel : la logique
     // reste côté serveur, en fragments HTML.
+    let requeteActive = null;
+
+    function marquerActive() {
+      document.querySelectorAll('.lien-requete').forEach((el) => {
+        el.classList.toggle('actif', el.dataset.queryId === requeteActive);
+      });
+    }
+
     document.body.addEventListener('click', (event) => {
       const lien = event.target.closest('.lien-requete');
       if (!lien) return;
-      document.querySelectorAll('.lien-requete.actif')
-              .forEach((el) => el.classList.remove('actif'));
-      lien.classList.add('actif');
+      requeteActive = lien.dataset.queryId;
+      marquerActive();
+    });
+
+    // La barre latérale est réécrite périodiquement : on repose la
+    // surbrillance après chaque remplacement.
+    document.body.addEventListener('htmx:afterSwap', (event) => {
+      if (event.target.id === 'barre-laterale') marquerActive();
     });
   </script>
 </body>

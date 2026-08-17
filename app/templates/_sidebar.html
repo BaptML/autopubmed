@@ -15,7 +15,7 @@
   <section class="dossier">
     <h2>{{ folder.name }}</h2>
     {% for query in folder.queries %}
-      <button class="lien-requete"
+      <button class="lien-requete" data-query-id="{{ query.id }}"
               hx-get="/queries/{{ query.id }}/articles"
               hx-target="#panneau"
               hx-swap="innerHTML">

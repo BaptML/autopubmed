@@ -8,6 +8,7 @@ consommés par HTMX.
 
 from __future__ import annotations
 
+import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import asynccontextmanager
@@ -25,6 +26,13 @@ from app.config import PROJECT_ROOT
 from app.db import connect, init_db
 from app.pubmed import PubMedClient
 from app.refresh import refresh_query
+from app.scheduler import create_scheduler
+
+# uvicorn ne configure que ses propres loggers : sans cela, les messages du job
+# de fond n'apparaîtraient jamais dans la console.
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(name)s : %(message)s"
+)
 
 TEMPLATES_DIR = PROJECT_ROOT / "app" / "templates"
 STATIC_DIR = PROJECT_ROOT / "app" / "static"
@@ -61,7 +69,17 @@ async def lifespan(app_: FastAPI):
     # La frontière est fixée à la première requête servie, avec la connexion de
     # celle-ci (voir _new_since), puis figée pour toute la session.
     app_.state.new_since = _UNSET
-    yield
+
+    scheduler = create_scheduler()
+    if scheduler is not None:
+        scheduler.start()
+    try:
+        yield
+    finally:
+        if scheduler is not None:
+            # wait=False : on n'attend pas la fin d'un rafraîchissement en cours,
+            # il reprendra au prochain démarrage.
+            scheduler.shutdown(wait=False)
 
 
 app = FastAPI(title="Veille PubMed", lifespan=lifespan)

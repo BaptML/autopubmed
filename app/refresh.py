@@ -18,6 +18,8 @@ import sqlite3
 import sys
 from dataclasses import dataclass, field
 
+import httpx
+
 from app import repo
 from app.db import get_conn, init_db
 from app.models import ArticleSummary, JournalQuality, SavedQuery
@@ -158,11 +160,21 @@ async def refresh_query(
 
 
 async def refresh_all(conn: sqlite3.Connection) -> list[RefreshReport]:
-    """Rafraîchit toutes les requêtes, séquentiellement (étiquette API)."""
+    """Rafraîchit toutes les requêtes, séquentiellement (étiquette API).
+
+    Une requête dont l'appel réseau échoue n'interrompt pas les suivantes :
+    l'erreur atterrit dans son rapport. Indispensable au job de fond, qui
+    tourne sans personne pour le relancer.
+    """
     reports: list[RefreshReport] = []
     async with PubMedClient() as pubmed:
         for query in repo.list_queries(conn):
-            reports.append(await refresh_query(conn, query, pubmed=pubmed))
+            try:
+                reports.append(await refresh_query(conn, query, pubmed=pubmed))
+            except httpx.HTTPError as exc:
+                report = RefreshReport(query_name=query.name)
+                report.errors.append(str(exc) or exc.__class__.__name__)
+                reports.append(report)
     return reports
 
 
