@@ -63,6 +63,18 @@
 
 <div class="corps-liste">
   <div class="colonne-articles">
+    <div class="barre-liste">
+      <span class="mono etiquette-liste">Articles</span>
+      {% if unread %}
+        <button class="bouton mono accent tout-lu"
+                hx-post="/queries/{{ query.id }}/read-all"
+                hx-target="#panneau" hx-swap="innerHTML"
+                hx-confirm="Marquer les {{ unread }} article{{ 's' if unread > 1 }} non lu{{ 's' if unread > 1 }} de cette requête comme lus ?">
+          Tout marquer comme lu
+        </button>
+      {% endif %}
+    </div>
+
     {% if not articles %}
       <p class="vide-message">
         Aucun article en cache pour cette requête.<br>
@@ -80,6 +92,10 @@
       </p>
     {% endif %}
   </div>
+
+  <div class="poignee poignee-encart" data-cible="--panel-width"
+       role="separator" aria-orientation="vertical" tabindex="0"
+       title="Glisser pour redimensionner · double-clic pour réinitialiser"></div>
 
   {# Encart de lecture : rempli par la ligne d'article sélectionnée. #}
   <aside class="colonne-encart" id="encart">

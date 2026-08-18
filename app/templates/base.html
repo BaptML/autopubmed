@@ -32,6 +32,10 @@
            hx-get="/queries" hx-trigger="load, every 120s" hx-swap="innerHTML">
     </aside>
 
+    <div class="poignee poignee-barre" data-cible="--sidebar-width"
+         role="separator" aria-orientation="vertical" tabindex="0"
+         title="Glisser pour redimensionner · double-clic pour réinitialiser"></div>
+
     <main class="panneau" id="panneau">
       <p class="vide-message">Sélectionne une requête dans la colonne de gauche.</p>
     </main>
@@ -76,6 +80,73 @@
     document.body.addEventListener('htmx:afterSwap', (event) => {
       if (event.target.id === 'barre-laterale') marquerActive();
       marquerArticle();
+    });
+
+    // Colonnes étirables. Chaque poignée pilote une variable CSS de largeur ;
+    // `sens` vaut -1 pour l'encart, dont le bord se déplace à l'inverse de sa
+    // largeur puisqu'il est ancré à droite.
+    const COLONNES = {
+      '--sidebar-width': { cle: 'largeurBarre', defaut: 232, min: 180, max: 460, sens: 1 },
+      '--panel-width': { cle: 'largeurEncart', defaut: 380, min: 260, max: 720, sens: -1 },
+    };
+
+    function poserLargeur(variable, valeur) {
+      const col = COLONNES[variable];
+      const borne = Math.min(col.max, Math.max(col.min, Math.round(valeur)));
+      document.documentElement.style.setProperty(variable, borne + 'px');
+      localStorage.setItem(col.cle, borne);
+      return borne;
+    }
+
+    Object.entries(COLONNES).forEach(([variable, col]) => {
+      const enregistre = parseInt(localStorage.getItem(col.cle), 10);
+      poserLargeur(variable, Number.isNaN(enregistre) ? col.defaut : enregistre);
+    });
+
+    document.body.addEventListener('pointerdown', (event) => {
+      const poignee = event.target.closest('.poignee');
+      if (!poignee) return;
+      const variable = poignee.dataset.cible;
+      const col = COLONNES[variable];
+      const departX = event.clientX;
+      const departLargeur = parseInt(
+        getComputedStyle(document.documentElement).getPropertyValue(variable), 10);
+
+      poignee.setPointerCapture(event.pointerId);
+      document.body.classList.add('redimensionne');
+
+      const glisser = (e) => {
+        poserLargeur(variable, departLargeur + (e.clientX - departX) * col.sens);
+      };
+      const relacher = () => {
+        poignee.removeEventListener('pointermove', glisser);
+        poignee.removeEventListener('pointerup', relacher);
+        document.body.classList.remove('redimensionne');
+      };
+      poignee.addEventListener('pointermove', glisser);
+      poignee.addEventListener('pointerup', relacher);
+      event.preventDefault();
+    });
+
+    // Double-clic : retour à la largeur d'origine.
+    document.body.addEventListener('dblclick', (event) => {
+      const poignee = event.target.closest('.poignee');
+      if (!poignee) return;
+      const variable = poignee.dataset.cible;
+      poserLargeur(variable, COLONNES[variable].defaut);
+    });
+
+    // Réglage au clavier, pour ne pas dépendre de la souris.
+    document.body.addEventListener('keydown', (event) => {
+      const poignee = event.target.closest('.poignee');
+      if (!poignee || (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight')) return;
+      const variable = poignee.dataset.cible;
+      const col = COLONNES[variable];
+      const pas = (event.key === 'ArrowRight' ? 16 : -16) * col.sens;
+      const actuelle = parseInt(
+        getComputedStyle(document.documentElement).getPropertyValue(variable), 10);
+      poserLargeur(variable, actuelle + pas);
+      event.preventDefault();
     });
 
     // Repli de la barre latérale, conservé d'une session à l'autre.

@@ -298,6 +298,16 @@ async def refresh(
     return _panel_and_sidebar(request, conn, query_id, report=report)
 
 
+@app.post("/queries/{query_id}/read-all", response_class=HTMLResponse)
+def mark_all_read(
+    request: Request, query_id: int, conn: sqlite3.Connection = Depends(get_db)
+) -> HTMLResponse:
+    """Marque lus tous les articles de la requête courante, et d'elle seule."""
+    repo.mark_all_read(conn, query_id)
+    conn.commit()
+    return _panel_and_sidebar(request, conn, query_id)
+
+
 def _panel_row_sidebar(
     request: Request,
     conn: sqlite3.Connection,

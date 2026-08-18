@@ -280,6 +280,18 @@ def set_read(conn: sqlite3.Connection, query_id: int, pmid: str, read: bool) -> 
     )
 
 
+def mark_all_read(conn: sqlite3.Connection, query_id: int) -> int:
+    """Marque lus tous les articles d'une requête, et d'elle seule.
+
+    Renvoie le nombre d'articles réellement basculés.
+    """
+    cursor = conn.execute(
+        "UPDATE query_articles SET read = 1 WHERE query_id = ? AND read = 0",
+        (query_id,),
+    )
+    return cursor.rowcount
+
+
 def count_unread(conn: sqlite3.Connection, query_id: int) -> int:
     row = conn.execute(
         "SELECT COUNT(*) AS n FROM query_articles WHERE query_id = ? AND read = 0",
