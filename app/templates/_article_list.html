@@ -1,27 +1,50 @@
+{% set unread = articles | rejectattr("read") | list | length %}
+
 <div class="entete-liste">
-  <div>
-    <h1>{{ query.name }}</h1>
-    <div class="chaine-pubmed">{{ query.pubmed_query }}</div>
-  </div>
-  <div class="meta-liste">
-    {{ articles|length }} article{{ 's' if articles|length > 1 }}<br>
-    {% if query.quartile_min %}quartile ≤ {{ query.quartile_min }}<br>{% endif %}
-    {% if query.citedness_min %}citedness ≥ {{ query.citedness_min }}<br>{% endif %}
-    {% if query.last_refreshed_at %}
-      màj {{ query.last_refreshed_at|date_fr }}
-    {% else %}
-      jamais rafraîchie
-    {% endif %}
-    <div class="barre-actions compacte">
-      <button class="bouton" hx-post="/queries/{{ query.id }}/refresh"
-              hx-target="#panneau" hx-swap="innerHTML"
-              hx-indicator="#indicateur-refresh"
-              hx-disabled-elt="this">Rafraîchir</button>
-      <button class="bouton" hx-get="/queries/{{ query.id }}/edit"
-              hx-target="#panneau" hx-swap="innerHTML">Modifier</button>
+  <div class="rang">
+    <div class="titre-bloc">
+      {# Le sur-titre dit l'âge du cache, pas la date du jour : l'interface lit
+         la base, elle n'interroge pas PubMed à l'affichage. #}
+      <div class="surtitre">
+        {{ query.folder }} · état du cache ·
+        {% if query.last_refreshed_at %}màj {{ query.last_refreshed_at|date_fr }}{% else %}jamais rafraîchie{% endif %}
+      </div>
+      <h1>{{ query.name }}</h1>
     </div>
-    <span id="indicateur-refresh" class="htmx-indicator aide">interrogation de PubMed…</span>
+
+    <div class="compteurs">
+      <div class="compteur-bloc">
+        <span class="etiquette">Retenus</span>
+        <span class="valeur">{{ articles|length }}</span>
+      </div>
+      <div class="compteur-bloc non-lus">
+        <span class="etiquette">Non lus</span>
+        <span class="valeur">{{ unread }}</span>
+      </div>
+      <div class="barre-actions compacte">
+        <button class="bouton" hx-post="/queries/{{ query.id }}/refresh"
+                hx-target="#panneau" hx-swap="innerHTML"
+                hx-indicator="#indicateur-refresh"
+                hx-disabled-elt="this">Rafraîchir</button>
+        <button class="bouton" hx-get="/queries/{{ query.id }}/edit"
+                hx-target="#panneau" hx-swap="innerHTML">Modifier la requête</button>
+      </div>
+    </div>
   </div>
+
+  <details class="replier-chaine">
+    <summary>Voir la chaîne PubMed</summary>
+    {# Affichée verbatim : la chaîne brute est la source de vérité. Les filtres
+       qualité sont listés à part, ils n'y sont jamais fusionnés. #}
+    <div class="chaine-pubmed">{{ query.pubmed_query }}</div>
+    <div class="note-pied" style="margin-top: 6.8px;">
+      Filtres qualité appliqués après récupération :
+      {% if query.quartile_min %}quartile ≤ Q{{ query.quartile_min }}{% else %}quartile libre{% endif %}
+      · {% if query.citedness_min %}citedness ≥ {{ query.citedness_min }}{% else %}citedness libre{% endif %}
+    </div>
+  </details>
+
+  <span id="indicateur-refresh" class="htmx-indicator aide">interrogation de PubMed…</span>
 </div>
 
 {% if report %}
@@ -38,13 +61,21 @@
   </div>
 {% endif %}
 
-{% if not articles %}
-  <p class="vide-message">
-    Aucun article en cache pour cette requête.<br>
-    Lance <code>uv run python -m app.refresh --id {{ query.id }}</code> pour la remplir.
-  </p>
-{% endif %}
+<div class="corps-liste">
+  {% if not articles %}
+    <p class="vide-message">
+      Aucun article en cache pour cette requête.<br>
+      Lance <code>uv run python -m app.refresh --id {{ query.id }}</code> pour la remplir.
+    </p>
+  {% endif %}
 
-{% for article in articles %}
-  {% include "_article_row.html" %}
-{% endfor %}
+  {% for article in articles %}
+    {% include "_article_row.html" %}
+  {% endfor %}
+
+  {% if articles %}
+    <p class="note-pied">
+      {{ "{:,}".format(articles|length).replace(",", " ") }} article{{ 's' if articles|length > 1 }} indexé{{ 's' if articles|length > 1 }} pour cette requête
+    </p>
+  {% endif %}
+</div>
