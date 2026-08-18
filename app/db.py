@@ -55,12 +55,34 @@ def get_conn(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
+# Colonnes ajoutées après coup. `schema.sql` est en CREATE TABLE IF NOT EXISTS :
+# rejoué sur une base existante, il ne touche à rien, donc une nouvelle colonne
+# n'y arriverait jamais. SQLite n'a pas d'ADD COLUMN IF NOT EXISTS, d'où cette
+# table de rattrapage — les prochains ajouts se branchent ici.
+_ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
+    ("queries", "max_age_years", "INTEGER"),
+)
+
+
+def _add_missing_columns(conn: sqlite3.Connection) -> list[str]:
+    """Ajoute les colonnes absentes. Idempotent. Renvoie celles qui ont été créées."""
+    added: list[str] = []
+    for table, column, definition in _ADDED_COLUMNS:
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+            added.append(f"{table}.{column}")
+    return added
+
+
 def init_db(db_path: Path | None = None) -> Path:
-    """Crée les tables si besoin. Renvoie le chemin de la base."""
+    """Crée les tables si besoin, puis rattrape les colonnes manquantes."""
     path = db_path or settings.db_path
     schema = SCHEMA_PATH.read_text(encoding="utf-8")
     with get_conn(path) as conn:
         conn.executescript(schema)
+        for column in _add_missing_columns(conn):
+            print(f"Migration : colonne ajoutée — {column}")
     return path
 
 

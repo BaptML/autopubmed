@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS queries (
     -- Jamais injectés dans pubmed_query.
     quartile_min      INTEGER,
     citedness_min     REAL,
+    -- Ancienneté maximale en années, sur la date de publication. NULL = aucune
+    -- limite. Filtre local, jamais injecté dans pubmed_query.
+    max_age_years     INTEGER,
     sort              TEXT    NOT NULL DEFAULT 'date_desc',
     created_at        TEXT    NOT NULL,
     last_refreshed_at TEXT
