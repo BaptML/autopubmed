@@ -385,6 +385,7 @@ body.redimensionne { cursor: col-resize; user-select: none; }
   border-bottom: 1px solid var(--color-divider);
 }
 .etiquette-liste { font-size: 9px; color: color-mix(in srgb, var(--color-text) 50%, transparent); }
+.tout-lu:disabled { cursor: not-allowed; }  /* pas « progress » : rien n'est en cours */
 
 .article {
   padding: var(--space-4);

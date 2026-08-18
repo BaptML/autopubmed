@@ -65,14 +65,15 @@
   <div class="colonne-articles">
     <div class="barre-liste">
       <span class="mono etiquette-liste">Articles</span>
-      {% if unread %}
-        <button class="bouton mono accent tout-lu"
-                hx-post="/queries/{{ query.id }}/read-all"
-                hx-target="#panneau" hx-swap="innerHTML"
-                hx-confirm="Marquer les {{ unread }} article{{ 's' if unread > 1 }} non lu{{ 's' if unread > 1 }} de cette requête comme lus ?">
-          Tout marquer comme lu
-        </button>
-      {% endif %}
+      {# Toujours rendu, désactivé quand il n'y a rien à marquer : une commande
+         qui disparaît est une commande qu'on ne retrouve pas. #}
+      <button class="bouton mono accent tout-lu"
+              {% if not unread %}disabled title="Tous les articles de cette requête sont déjà lus"{% endif %}
+              hx-post="/queries/{{ query.id }}/read-all"
+              hx-target="#panneau" hx-swap="innerHTML"
+              hx-confirm="Marquer les {{ unread }} article{{ 's' if unread > 1 }} non lu{{ 's' if unread > 1 }} de cette requête comme lus ?">
+        Tout marquer comme lu
+      </button>
     </div>
 
     {% if not articles %}
