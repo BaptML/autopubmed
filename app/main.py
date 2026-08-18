@@ -146,7 +146,11 @@ def _panel_and_sidebar(
         {
             "query": query,
             "articles": repo.list_articles_for_query(
-                conn, query_id, query.sort, new_since=_new_since(request, conn)
+                conn,
+                query_id,
+                query.sort,
+                new_since=_new_since(request, conn),
+                max_age_years=query.max_age_years,
             ),
             "folders": repo.folders_with_queries(conn),
             "report": report,
@@ -198,7 +202,11 @@ def query_articles(
         {
             "query": query,
             "articles": repo.list_articles_for_query(
-                conn, query_id, query.sort, new_since=_new_since(request, conn)
+                conn,
+                query_id,
+                query.sort,
+                new_since=_new_since(request, conn),
+                max_age_years=query.max_age_years,
             ),
             "report": None,
         },
@@ -230,6 +238,7 @@ def create_query(
     folder: str = Form("Sans dossier"),
     quartile_min: str = Form(""),
     citedness_min: str = Form(""),
+    max_age_years: str = Form(""),
     sort: str = Form("date_desc"),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
@@ -241,6 +250,7 @@ def create_query(
         folder=folder.strip() or "Sans dossier",
         quartile_min=_optional_int(quartile_min),
         citedness_min=_optional_float(citedness_min),
+        max_age_years=_optional_int(max_age_years),
         sort=sort,
     )
     return _panel_and_sidebar(request, conn, query_id)
@@ -255,6 +265,7 @@ def save_query(
     folder: str = Form("Sans dossier"),
     quartile_min: str = Form(""),
     citedness_min: str = Form(""),
+    max_age_years: str = Form(""),
     sort: str = Form("date_desc"),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
@@ -268,6 +279,7 @@ def save_query(
         folder=folder.strip() or "Sans dossier",
         quartile_min=_optional_int(quartile_min),
         citedness_min=_optional_float(citedness_min),
+        max_age_years=_optional_int(max_age_years),
         sort=sort,
     )
     return _panel_and_sidebar(request, conn, query_id)

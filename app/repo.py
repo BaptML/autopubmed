@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 
 from app.db import utcnow_iso
 from app.models import ArticleSummary, JournalQuality, SavedQuery
 
 _QUERY_COLUMNS = (
     "id, name, folder, pubmed_query, quartile_min, citedness_min, "
-    "sort, created_at, last_refreshed_at"
+    "max_age_years, sort, created_at, last_refreshed_at"
 )
 
 
@@ -21,10 +22,26 @@ def _to_query(row: sqlite3.Row) -> SavedQuery:
         pubmed_query=row["pubmed_query"],
         quartile_min=row["quartile_min"],
         citedness_min=row["citedness_min"],
+        max_age_years=row["max_age_years"],
         sort=row["sort"],
         created_at=row["created_at"],
         last_refreshed_at=row["last_refreshed_at"],
     )
+
+
+def cutoff_date(max_age_years: int | None) -> str | None:
+    """Date de publication la plus ancienne acceptée, en ISO. None = illimité.
+
+    Fenêtre glissante : on retranche N années à aujourd'hui plutôt que de
+    raisonner en années civiles, pour que « 1 an » veuille bien dire douze mois.
+    """
+    if not max_age_years:
+        return None
+    today = date.today()
+    try:
+        return today.replace(year=today.year - max_age_years).isoformat()
+    except ValueError:  # 29 février d'une année bissextile
+        return today.replace(year=today.year - max_age_years, day=28).isoformat()
 
 
 # --- Requêtes sauvegardées ----------------------------------------------
@@ -38,12 +55,23 @@ def create_query(
     folder: str = "Sans dossier",
     quartile_min: int | None = None,
     citedness_min: float | None = None,
+    max_age_years: int | None = None,
     sort: str = "date_desc",
 ) -> int:
     cursor = conn.execute(
         "INSERT INTO queries (name, folder, pubmed_query, quartile_min, "
-        "citedness_min, sort, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (name, folder, pubmed_query, quartile_min, citedness_min, sort, utcnow_iso()),
+        "citedness_min, max_age_years, sort, created_at) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            name,
+            folder,
+            pubmed_query,
+            quartile_min,
+            citedness_min,
+            max_age_years,
+            sort,
+            utcnow_iso(),
+        ),
     )
     return int(cursor.lastrowid or 0)
 
@@ -71,13 +99,24 @@ def update_query(
     folder: str,
     quartile_min: int | None,
     citedness_min: float | None,
+    max_age_years: int | None,
     sort: str,
 ) -> None:
     """Met à jour une requête. La chaîne PubMed est enregistrée telle quelle."""
     conn.execute(
         "UPDATE queries SET name = ?, folder = ?, pubmed_query = ?, "
-        "quartile_min = ?, citedness_min = ?, sort = ? WHERE id = ?",
-        (name, folder, pubmed_query, quartile_min, citedness_min, sort, query_id),
+        "quartile_min = ?, citedness_min = ?, max_age_years = ?, sort = ? "
+        "WHERE id = ?",
+        (
+            name,
+            folder,
+            pubmed_query,
+            quartile_min,
+            citedness_min,
+            max_age_years,
+            sort,
+            query_id,
+        ),
     )
 
 
@@ -246,17 +285,29 @@ def _article_select(where: str, order_by: str) -> str:
     """
 
 
+# Ancienneté. Les dates partielles de PubMed (« 2021 », « 2021-03 ») sont
+# complétées avant comparaison : sans cela « 2021 » < « 2021-01-01 » en ordre
+# lexicographique, et l'article serait écarté à tort. Une date absente ne permet
+# pas d'affirmer que l'article est trop vieux : on le garde.
+_AGE_CLAUSE = (
+    "(? IS NULL OR a.pub_date IS NULL "
+    "OR substr(a.pub_date || '-12-31', 1, 10) >= ?)"
+)
+
+
 def list_articles_for_query(
     conn: sqlite3.Connection,
     query_id: int,
     sort: str = "date_desc",
     new_since: str | None = None,
+    max_age_years: int | None = None,
 ) -> list[dict]:
     """Articles d'une requête, tels quels depuis le cache — aucun appel réseau."""
     order_by = _SORT_CLAUSES.get(sort, _SORT_CLAUSES["date_desc"])
+    cutoff = cutoff_date(max_age_years)
     rows = conn.execute(
-        _article_select("qa.query_id = ?", order_by),
-        (new_since, new_since, query_id),
+        _article_select(f"qa.query_id = ? AND {_AGE_CLAUSE}", order_by),
+        (new_since, new_since, query_id, cutoff, cutoff),
     ).fetchall()
     return [dict(row) for row in rows]
 

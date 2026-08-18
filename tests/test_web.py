@@ -77,8 +77,8 @@ def test_sidebar_groupe_par_dossier_et_compte_les_non_lus(client: TestClient) ->
     assert "Brouillons" in response.text
     assert "NEJM / essais randomisés" in response.text
     # Un article non lu sur la première requête, zéro sur la seconde.
-    assert '<span class="compteur ">1</span>' in response.text
-    assert '<span class="compteur vide">0</span>' in response.text
+    assert "1 nouv." in response.text
+    assert "à jour" in response.text
 
 
 def test_liste_d_articles_affiche_titre_revue_et_badge(client: TestClient) -> None:
@@ -88,7 +88,11 @@ def test_liste_d_articles_affiche_titre_revue_et_badge(client: TestClient) -> No
     assert "N Engl J Med" in response.text
     assert 'class="badge q1"' in response.text
     assert "13/08/2026" in response.text
-    assert "https://pubmed.ncbi.nlm.nih.gov/40000001/" in response.text
+    # Le titre n'est plus un lien : la ligne ouvre l'encart de lecture, d'où
+    # part le lien vers PubMed.
+    assert (
+        f'hx-get="/articles/40000001/panel?query_id={client.query_id}"' in response.text
+    )
 
 
 def test_liste_vide_explique_comment_la_remplir(client: TestClient) -> None:
@@ -188,10 +192,10 @@ def test_marquage_lu_bascule_et_met_a_jour_le_compteur(client: TestClient) -> No
     assert response.status_code == 200
     # La ligne rejouée n'est plus en évidence et propose la bascule inverse.
     assert 'class="article"' in response.text
-    assert "marquer non lu" in response.text
+    assert '"read": 0' in response.text
     # Le compteur de non-lus suit, hors bande.
     assert 'hx-swap-oob="innerHTML:#barre-laterale"' in response.text
-    assert '<span class="compteur vide">0</span>' in response.text
+    assert "à jour" in response.text
 
     with get_conn(client.db_path) as conn:
         assert repo.count_unread(conn, client.query_id) == 0
@@ -233,14 +237,15 @@ def test_resume_efetch_a_la_demande_puis_cache(
     fake = FakePubMedClient()
     monkeypatch.setattr("app.main.PubMedClient", lambda: fake)
 
-    response = client.get("/articles/40000001/abstract")
+    panel = f"/articles/40000001/panel?query_id={client.query_id}"
+    response = client.get(panel)
     assert response.status_code == 200
     assert "OBJECTIF : Évaluer le sémaglutide." in response.text
     assert "RÉSULTATS : Amélioration nette." in response.text
     assert fake.efetch_calls == 1
 
-    # Deuxième dépliage : servi depuis la base, sans rappeler PubMed.
-    again = client.get("/articles/40000001/abstract")
+    # Deuxième ouverture : servie depuis la base, sans rappeler PubMed.
+    again = client.get(panel)
     assert "OBJECTIF : Évaluer le sémaglutide." in again.text
     assert fake.efetch_calls == 1
 
@@ -254,21 +259,31 @@ def test_resume_absent_est_memorise_pour_ne_pas_rappeler_pubmed(
     fake = FakePubMedClient(abstract=None)
     monkeypatch.setattr("app.main.PubMedClient", lambda: fake)
 
-    assert "Aucun résumé disponible" in client.get("/articles/40000001/abstract").text
-    client.get("/articles/40000001/abstract")
+    panel = f"/articles/40000001/panel?query_id={client.query_id}"
+    assert "Aucun résumé disponible" in client.get(panel).text
+    client.get(panel)
     assert fake.efetch_calls == 1  # l'absence de résumé est elle aussi en cache
 
 
 def test_resume_d_un_article_inconnu_renvoie_404(client: TestClient) -> None:
-    assert client.get("/articles/99999999/abstract").status_code == 404
+    url = f"/articles/99999999/panel?query_id={client.query_id}"
+    assert client.get(url).status_code == 404
 
 
-def test_le_rafraichissement_ne_recupere_aucun_resume(client: TestClient) -> None:
-    # Garde-fou : la liste ne doit jamais contenir le résumé, seulement de quoi
-    # le demander. Le pipeline reste léger et poli.
+def test_le_rafraichissement_ne_recupere_aucun_resume(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Garde-fou : afficher la liste ne doit jamais appeler PubMed, seulement
+    # proposer de quoi demander le résumé. Le pipeline reste léger et poli.
+    fake = FakePubMedClient()
+    monkeypatch.setattr("app.main.PubMedClient", lambda: fake)
+
     response = client.get(f"/queries/{client.query_id}/articles")
-    assert 'hx-get="/articles/40000001/abstract"' in response.text
-    assert 'hx-trigger="toggle from:closest details once"' in response.text
+    assert fake.efetch_calls == 0
+    assert "OBJECTIF : Évaluer le sémaglutide." not in response.text
+    assert (
+        f'hx-get="/articles/40000001/panel?query_id={client.query_id}"' in response.text
+    )
 
 
 def test_apercu_sans_chaine_n_appelle_pas_pubmed(client: TestClient) -> None:

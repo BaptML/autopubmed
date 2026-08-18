@@ -70,6 +70,21 @@
       </div>
 
       <div class="champ">
+        <label for="champ-anciennete">Ancienneté maximale</label>
+        <select id="champ-anciennete" name="max_age_years">
+          <option value="">pas de limite</option>
+          {% for value, label in [(1, '1 an'), (3, '3 ans'), (5, '5 ans')] %}
+            <option value="{{ value }}"
+              {{ 'selected' if query and query.max_age_years == value }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="aide">
+          Porte sur la date de publication. Les articles sans date connue sont
+          conservés.
+        </p>
+      </div>
+
+      <div class="champ">
         <label for="champ-tri">Tri d'affichage</label>
         <select id="champ-tri" name="sort">
           {% for value, label in [('date_desc', 'Date décroissante'), ('date_asc', 'Date croissante'), ('journal', 'Revue')] %}

@@ -38,9 +38,10 @@
        qualité sont listés à part, ils n'y sont jamais fusionnés. #}
     <div class="chaine-pubmed">{{ query.pubmed_query }}</div>
     <div class="note-pied" style="margin-top: 6.8px;">
-      Filtres qualité appliqués après récupération :
+      Filtres appliqués après récupération :
       {% if query.quartile_min %}quartile ≤ Q{{ query.quartile_min }}{% else %}quartile libre{% endif %}
       · {% if query.citedness_min %}citedness ≥ {{ query.citedness_min }}{% else %}citedness libre{% endif %}
+      · {% if query.max_age_years %}publié depuis moins de {{ query.max_age_years }} an{{ 's' if query.max_age_years > 1 }}{% else %}toutes années{% endif %}
     </div>
   </details>
 

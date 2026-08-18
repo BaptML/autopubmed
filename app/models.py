@@ -69,6 +69,8 @@ class SavedQuery:
     pubmed_query: str
     quartile_min: int | None
     citedness_min: float | None
+    # Ancienneté maximale en années, sur la date de publication. None = illimité.
+    max_age_years: int | None
     sort: str
     created_at: str
     last_refreshed_at: str | None

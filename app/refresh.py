@@ -39,6 +39,7 @@ class RefreshReport:
     unmatched_quality: int = 0  # articles dont aucun ISSN n'est dans journal_quality
     kept: int = 0
     rejected: int = 0
+    too_old: int = 0  # écartés par l'ancienneté maximale de la requête
     new_links: int = 0  # paires (requête, article) inédites -> non lus
     translation: str = ""
     warnings: list[str] = field(default_factory=list)
@@ -52,6 +53,7 @@ class RefreshReport:
             f"Enrichis (esummary): {self.newly_summarized}",
             f"Sans qualité connue: {self.unmatched_quality}",
             f"Retenus / écartés  : {self.kept} / {self.rejected}",
+            f"Trop anciens       : {self.too_old}",
             f"Nouveaux (non lus) : {self.new_links}",
         ]
         for warning in self.warnings:
@@ -59,6 +61,18 @@ class RefreshReport:
         for error in self.errors:
             lines.append(f"  !! erreur PubMed : {error}")
         return "\n".join(lines)
+
+
+def _too_old(pub_date: str | None, cutoff: str | None) -> bool:
+    """Article publié avant la date butoir de la requête.
+
+    Même règle qu'en SQL (`repo._AGE_CLAUSE`) : les dates partielles de PubMed
+    sont complétées vers la fin de période, et une date absente ne suffit pas à
+    écarter un article.
+    """
+    if cutoff is None or not pub_date:
+        return False
+    return (pub_date + "-12-31")[:10] < cutoff
 
 
 def _best_quality(
@@ -143,7 +157,11 @@ async def refresh_query(
         quality_map = repo.get_quality_map(conn, issns)
 
     # 4. Filtrer puis 5. persister.
+    cutoff = repo.cutoff_date(query.max_age_years)
     for summary in all_summaries:
+        if _too_old(summary.pub_date, cutoff):
+            report.too_old += 1
+            continue
         quality = _best_quality(summary, quality_map)
         if quality is None:
             report.unmatched_quality += 1

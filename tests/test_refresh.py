@@ -7,6 +7,7 @@ avec l'ISSN papier comme avec l'électronique.
 
 import asyncio
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -157,6 +158,55 @@ def test_last_refreshed_at_est_horodate(db: Path) -> None:
         assert repo.get_query(conn, query_id).last_refreshed_at is None
         _run(conn, query_id, fake)
         assert repo.get_query(conn, query_id).last_refreshed_at is not None
+
+
+def _dated(pmid: str, pub_date: str | None) -> ArticleSummary:
+    return ArticleSummary(
+        pmid=pmid, title=f"Titre {pmid}", journal="N Engl J Med",
+        issn=NEJM_ISSN, eissn=None, pub_date=pub_date,
+    )
+
+
+def test_anciennete_maximale_ecarte_les_publications_trop_vieilles(db: Path) -> None:
+    # Le 1er du mois : `replace(year=...)` ne peut pas tomber sur un 29 février.
+    base = date.today().replace(day=1)
+    articles = [
+        _dated("recent", base.isoformat()),
+        _dated("deux_ans", base.replace(year=base.year - 2).isoformat()),
+        _dated("dix_ans", base.replace(year=base.year - 10).isoformat()),
+        _dated("annee_seule", str(base.year - 2)),  # date partielle de PubMed
+        _dated("sans_date", None),
+    ]
+    fake = FakePubMed(articles)
+
+    with get_conn(db) as conn:
+        query_id = repo.create_query(
+            conn, name="A", pubmed_query="cancer[tiab]", max_age_years=3
+        )
+        report = _run(conn, query_id, fake)
+        lus = {
+            row["pmid"]
+            for row in repo.list_articles_for_query(conn, query_id, max_age_years=3)
+        }
+
+    assert report.too_old == 1
+    # Une date partielle est complétée vers la fin de période ; une date absente
+    # ne suffit pas à écarter un article. Lecture et pipeline doivent s'accorder.
+    attendu = {"recent", "deux_ans", "annee_seule", "sans_date"}
+    assert lus == attendu
+
+
+def test_sans_anciennete_maximale_les_vieux_articles_restent(db: Path) -> None:
+    vieux = date.today().replace(day=1, year=date.today().year - 20).isoformat()
+    fake = FakePubMed([_dated("ancien", vieux)])
+
+    with get_conn(db) as conn:
+        query_id = repo.create_query(conn, name="A", pubmed_query="x")
+        report = _run(conn, query_id, fake)
+        lus = repo.list_articles_for_query(conn, query_id)
+
+    assert report.too_old == 0
+    assert [row["pmid"] for row in lus] == ["ancien"]
 
 
 def test_recherche_vide_ne_casse_pas_le_pipeline(db: Path) -> None:
