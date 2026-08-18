@@ -181,13 +181,19 @@ body.barre-repliee .barre-laterale { display: none; }
   width: 5px;
   margin: 0 -2px;  /* zone de préhension plus large que le filet visible */
   cursor: col-resize;
-  background: transparent;
+  /* Filet de 1 px au centre des 5 px de préhension : sans repère visible,
+     rien n'indique qu'on peut tirer. */
+  background: linear-gradient(to right,
+    transparent 2px, var(--rule-list) 2px, var(--rule-list) 3px, transparent 3px);
   z-index: 30;
 }
 .poignee:hover, .poignee:focus-visible, body.redimensionne .poignee {
   background: color-mix(in srgb, var(--color-accent) 55%, transparent);
 }
 .poignee-barre { position: sticky; top: var(--topbar-height); height: calc(100vh - var(--topbar-height)); }
+/* Le conteneur aligne ses colonnes en haut : sans étirement explicite, une
+   poignée vide mesurerait 0 de haut et serait impossible à attraper. */
+.poignee-encart { align-self: stretch; min-height: 240px; }
 body.barre-repliee .poignee-barre { display: none; }
 /* Pendant le glissement, le curseur ne doit pas sélectionner de texte. */
 body.redimensionne { cursor: col-resize; user-select: none; }
