@@ -62,20 +62,27 @@
 {% endif %}
 
 <div class="corps-liste">
-  {% if not articles %}
-    <p class="vide-message">
-      Aucun article en cache pour cette requête.<br>
-      Lance <code>uv run python -m app.refresh --id {{ query.id }}</code> pour la remplir.
-    </p>
-  {% endif %}
+  <div class="colonne-articles">
+    {% if not articles %}
+      <p class="vide-message">
+        Aucun article en cache pour cette requête.<br>
+        Lance <code>uv run python -m app.refresh --id {{ query.id }}</code> pour la remplir.
+      </p>
+    {% endif %}
 
-  {% for article in articles %}
-    {% include "_article_row.html" %}
-  {% endfor %}
+    {% for article in articles %}
+      {% include "_article_row.html" %}
+    {% endfor %}
 
-  {% if articles %}
-    <p class="note-pied">
-      {{ "{:,}".format(articles|length).replace(",", " ") }} article{{ 's' if articles|length > 1 }} indexé{{ 's' if articles|length > 1 }} pour cette requête
-    </p>
-  {% endif %}
+    {% if articles %}
+      <p class="note-pied">
+        {{ "{:,}".format(articles|length).replace(",", " ") }} article{{ 's' if articles|length > 1 }} indexé{{ 's' if articles|length > 1 }} pour cette requête
+      </p>
+    {% endif %}
+  </div>
+
+  {# Encart de lecture : rempli par la ligne d'article sélectionnée. #}
+  <aside class="colonne-encart" id="encart">
+    <p class="encart-vide">Sélectionne un article pour lire son résumé.</p>
+  </aside>
 </div>

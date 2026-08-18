@@ -298,17 +298,50 @@ async def refresh(
     return _panel_and_sidebar(request, conn, query_id, report=report)
 
 
+def _panel_row_sidebar(
+    request: Request,
+    conn: sqlite3.Connection,
+    query_id: int,
+    pmid: str,
+    abstract: str | None,
+    error: str | None,
+) -> HTMLResponse:
+    """Encart de lecture, plus la ligne d'article et la barre latérale hors bande."""
+    article = repo.get_article_row(
+        conn, query_id, pmid, new_since=_new_since(request, conn)
+    )
+    if article is None:
+        raise HTTPException(status_code=404, detail="Article introuvable")
+    return templates.TemplateResponse(
+        request,
+        "_panel_row_sidebar.html",
+        {
+            "article": article,
+            "abstract": abstract,
+            "error": error,
+            "folders": repo.folders_with_queries(conn),
+        },
+    )
+
+
 @app.post("/articles/{pmid}/read", response_class=HTMLResponse)
 def toggle_read(
     request: Request,
     pmid: str,
     query_id: int = Form(...),
     read: int = Form(...),
+    from_panel: int = Form(0),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
     """Bascule l'état de lecture. Le suivi est propre à chaque requête."""
     repo.set_read(conn, query_id, pmid, read=bool(read))
     conn.commit()
+    if from_panel:
+        # Appelé depuis l'encart : le résumé y est déjà affiché, donc en cache.
+        # Aucun appel à PubMed n'est nécessaire pour le redessiner.
+        return _panel_row_sidebar(
+            request, conn, query_id, pmid, repo.get_abstract(conn, pmid), None
+        )
     article = repo.get_article_row(conn, query_id, pmid, new_since=_new_since(request, conn))
     if article is None:
         raise HTTPException(status_code=404, detail="Article introuvable")
@@ -322,37 +355,43 @@ def toggle_read(
 # --- Appels délégués à PubMed --------------------------------------------
 
 
-@app.get("/articles/{pmid}/abstract", response_class=HTMLResponse)
-async def article_abstract(
-    request: Request, pmid: str, conn: sqlite3.Connection = Depends(get_db)
-) -> HTMLResponse:
-    """Résumé à la demande : efetch au premier dépliage, puis cache.
+async def _load_abstract(
+    conn: sqlite3.Connection, pmid: str
+) -> tuple[str | None, str | None]:
+    """Résumé depuis le cache, sinon efetch. Renvoie (résumé, erreur).
 
     Le rafraîchissement ne récupère jamais les résumés ; c'est ici, et
     seulement ici, qu'ils entrent en base.
     """
+    abstract = repo.get_abstract(conn, pmid)
+    if abstract is not None:
+        return abstract, None
+    try:
+        async with PubMedClient() as pubmed:
+            abstract = await pubmed.efetch_abstract(pmid)
+    except httpx.HTTPError as exc:
+        return None, str(exc) or exc.__class__.__name__
+    # Un article sans résumé (éditorial, lettre) est mis en cache comme chaîne
+    # vide : inutile de rappeler PubMed à chaque ouverture.
+    repo.set_abstract(conn, pmid, abstract or "")
+    conn.commit()
+    return abstract, None
+
+
+@app.get("/articles/{pmid}/panel", response_class=HTMLResponse)
+async def article_panel(
+    request: Request,
+    pmid: str,
+    query_id: int,
+    conn: sqlite3.Connection = Depends(get_db),
+) -> HTMLResponse:
+    """Ouvre un article dans l'encart de lecture — et le compte donc pour lu."""
     if repo.get_article_summary(conn, pmid) is None:
         raise HTTPException(status_code=404, detail="Article introuvable")
-
-    abstract = repo.get_abstract(conn, pmid)
-    error: str | None = None
-    if abstract is None:
-        try:
-            async with PubMedClient() as pubmed:
-                abstract = await pubmed.efetch_abstract(pmid)
-        except httpx.HTTPError as exc:
-            error = str(exc) or exc.__class__.__name__
-        else:
-            # Un article sans résumé (éditorial, lettre) est mis en cache comme
-            # chaîne vide : inutile de rappeler PubMed à chaque dépliage.
-            repo.set_abstract(conn, pmid, abstract or "")
-            conn.commit()
-
-    return templates.TemplateResponse(
-        request,
-        "_abstract.html",
-        {"pmid": pmid, "abstract": abstract, "error": error},
-    )
+    repo.set_read(conn, query_id, pmid, read=True)
+    conn.commit()
+    abstract, error = await _load_abstract(conn, pmid)
+    return _panel_row_sidebar(request, conn, query_id, pmid, abstract, error)
 
 
 @app.get("/preview", response_class=HTMLResponse)

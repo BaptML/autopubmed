@@ -1,0 +1,46 @@
+{% import "_macros.html" as macros %}
+
+{# Encart de lecture : contenu de #encart. Un seul article à la fois. #}
+<section class="encart blueprint">
+  <i class="corner tl"></i><i class="corner tr"></i>
+  <i class="corner bl"></i><i class="corner br"></i>
+
+  <div class="encart-tete">
+    <span class="titre-cadre">Lecture</span>
+    <span class="pmid">PMID {{ article.pmid }}</span>
+  </div>
+
+  <h2>{{ article.title }}</h2>
+
+  <div class="encart-cellules">
+    <div>
+      <span class="etiquette">Revue</span>
+      <span class="valeur">{{ article.journal or "inconnue" }}</span>
+    </div>
+    <div>
+      <span class="etiquette">Quartile SJR</span>
+      <span class="valeur">{{ macros.badge_quartile(article.quartile) }}</span>
+    </div>
+    <div>
+      <span class="etiquette">Publié le</span>
+      <span class="valeur">{{ article.pub_date|date_fr }}</span>
+    </div>
+  </div>
+
+  <div class="titre-cadre">Résumé</div>
+  <div class="encart-resume">
+    {% include "_abstract.html" %}
+  </div>
+
+  <div class="encart-pied">
+    <button class="bouton principal"
+            hx-post="/articles/{{ article.pmid }}/read"
+            hx-vals='{"query_id": {{ article.query_id }}, "read": {{ 0 if article.read else 1 }}, "from_panel": 1}'
+            hx-target="#encart" hx-swap="innerHTML">
+      {{ "Marquer comme non lu" if article.read else "Marquer comme lu" }}
+    </button>
+    <a class="bouton" href="{{ article.url }}" target="_blank" rel="noopener">
+      Voir sur PubMed ↗
+    </a>
+  </div>
+</section>

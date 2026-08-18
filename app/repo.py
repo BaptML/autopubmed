@@ -235,6 +235,7 @@ def _article_select(where: str, order_by: str) -> str:
     return f"""
         SELECT a.pmid, a.title, a.journal, a.pub_date, a.url,
                a.abstract IS NOT NULL AS has_abstract,
+               substr(a.abstract, 1, 300) AS abstract_excerpt,
                qa.read, qa.first_seen, qa.query_id,
                (? IS NOT NULL AND qa.first_seen > ?) AS is_new,
                {_QUARTILE_SUBQUERY}

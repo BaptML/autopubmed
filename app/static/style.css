@@ -341,17 +341,41 @@ body.barre-repliee .barre-laterale { display: none; }
   word-break: break-word;
 }
 
-.corps-liste { padding: var(--space-6) var(--space-8) 68px; }
+.corps-liste {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-8);
+  padding: var(--space-6) var(--space-8) 68px;
+}
+/* Bases flex volontairement basses : sous ~590 px de zone de contenu,
+   l'encart repasse de lui-même sous la liste. */
+.colonne-articles { flex: 3 1 240px; min-width: 0; }
 
-.article { padding: var(--space-4) var(--space-4) var(--space-4) 0; border-bottom: 1px solid var(--rule-list); }
-/* Non lu : filet accent collé à gauche. C'est le seul signal de mise en avant. */
-.article { border-left: 3px solid transparent; padding-left: var(--space-4); }
+.article {
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--rule-list);
+  border-left: 3px solid transparent;  /* filet accent : seul signal de non-lu */
+  cursor: pointer;
+}
 .article.non-lu { border-left-color: var(--color-accent); }
-.article:not(.non-lu) { opacity: .55; }
+.article:not(.non-lu):not(.selectionne) { opacity: .55; }
+.article:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
+.article.selectionne { background: color-mix(in srgb, var(--color-accent) 9%, transparent); }
 
 .article h3 { font-size: 18px; line-height: 1.22; margin: var(--space-1) 0; }
-.article h3 a { color: inherit; text-decoration: none; }
-.article h3 a:hover { color: var(--color-accent-800); text-decoration: underline; }
+.article.selectionne h3 { color: var(--color-accent-800); }
+
+.extrait {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-70);
+}
 
 .ligne-meta {
   display: flex;
@@ -389,24 +413,70 @@ body.barre-repliee .barre-laterale { display: none; }
 /* Apparu depuis l'ouverture précédente de l'application. */
 .badge.nouveau { background: var(--color-accent); }
 
-/* --- Résumé --- */
+/* --- Encart de lecture --- */
 
-.bloc-resume { margin-top: var(--space-2); }
-.bloc-resume > summary {
-  width: fit-content;
-  cursor: pointer;
+.colonne-encart {
+  flex: 2 1 220px;
+  max-width: 460px;
+  position: sticky;
+  /* Hauteur approximative de l'en-tête de requête, qui est elle-même
+     collante : l'encart se cale juste dessous. */
+  top: calc(var(--topbar-height) + 132px);
+}
+.encart-vide { color: var(--ink-55); font-size: 13px; margin: 0; }
+
+.encart {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-6);
+}
+.encart-tete { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); }
+.encart-tete .pmid {
   font-family: var(--font-mono);
   font-size: 9px;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-  color: var(--color-accent-700);
+  color: var(--ink-45);
 }
-.resume-contenu {
-  margin-top: var(--space-2);
+.encart h2 { font-size: 26px; line-height: 1.12; }
+
+.encart-cellules {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+  border-top: 1px solid var(--color-divider);
+  border-bottom: 1px solid var(--color-divider);
+}
+.encart-cellules .etiquette {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 8.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 50%, transparent);
+}
+.encart-cellules .valeur {
+  display: block;
+  margin-top: var(--space-1);
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.encart-resume {
+  max-height: calc(100vh - 420px);
+  min-height: 60px;
+  overflow: auto;
   padding-left: var(--space-4);
   border-left: 2px solid var(--color-accent);
 }
-.resume-paragraphe { margin: 0 0 var(--space-2); font-size: 14px; line-height: 1.62; max-width: 70ch; }
+.resume-paragraphe { margin: 0 0 var(--space-2); font-size: 14px; line-height: 1.62; }
+
+.encart-pied { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.encart-pied .bouton { flex: 1 1 140px; text-decoration: none; }
 
 /* --- Messages --- */
 

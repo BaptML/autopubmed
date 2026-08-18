@@ -1,0 +1,11 @@
+{# Réponse composite : l'encart de lecture, plus la ligne d'article et la
+   barre latérale hors bande — l'état de lecture et le compteur de non-lus
+   suivent sans recharger la liste. #}
+{% include "_reading_panel.html" %}
+
+{% set oob = true %}
+{% include "_article_row.html" %}
+
+<div hx-swap-oob="innerHTML:#barre-laterale">
+  {% include "_sidebar.html" %}
+</div>

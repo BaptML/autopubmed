@@ -41,6 +41,7 @@
     // Surbrillance de la requête ouverte. État purement visuel : la logique
     // reste côté serveur, en fragments HTML.
     let requeteActive = null;
+    let articleActif = null;
 
     function marquerActive() {
       document.querySelectorAll('.lien-requete').forEach((el) => {
@@ -48,17 +49,33 @@
       });
     }
 
+    function marquerArticle() {
+      document.querySelectorAll('.article').forEach((el) => {
+        el.classList.toggle('selectionne', el.id === articleActif);
+      });
+    }
+
     document.body.addEventListener('click', (event) => {
       const lien = event.target.closest('.lien-requete');
-      if (!lien) return;
-      requeteActive = lien.dataset.queryId;
-      marquerActive();
+      if (lien) {
+        requeteActive = lien.dataset.queryId;
+        articleActif = null;  // changer de requête vide l'encart
+        marquerActive();
+        return;
+      }
+      const ligne = event.target.closest('.article');
+      if (ligne && !event.target.closest('.lien-lecture')) {
+        articleActif = ligne.id;
+        marquerArticle();
+      }
     });
 
-    // La barre latérale est réécrite périodiquement : on repose la
-    // surbrillance après chaque remplacement.
+    // Les fragments sont réécrits en permanence (barre latérale périodique,
+    // ligne rejouée hors bande) : on repose la surbrillance après chaque
+    // remplacement.
     document.body.addEventListener('htmx:afterSwap', (event) => {
       if (event.target.id === 'barre-laterale') marquerActive();
+      marquerArticle();
     });
 
     // Repli de la barre latérale, conservé d'une session à l'autre.
