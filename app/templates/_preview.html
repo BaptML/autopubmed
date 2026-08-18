@@ -7,7 +7,9 @@
 {% else %}
   <div class="apercu-ligne">
     <strong class="apercu-total">{{ "{:,}".format(result.count).replace(",", " ") }}</strong>
-    résultat{{ "s" if result.count > 1 }} sur PubMed
+    <span class="mono" style="font-size: 8.5px; color: var(--ink-45);">
+      résultat{{ "s" if result.count > 1 }} au total
+    </span>
     <a class="lien-pubmed" href="{{ pubmed_url }}" target="_blank" rel="noopener">
       ouvrir dans PubMed ↗
     </a>

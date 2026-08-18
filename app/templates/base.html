@@ -4,10 +4,26 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Veille PubMed</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css2?family=Spectral:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
   <link rel="stylesheet" href="/static/style.css">
   <script src="/static/htmx.min.js" defer></script>
 </head>
 <body>
+  <header class="barre-sup">
+    <button class="bascule-barre" id="bascule-barre" type="button"
+            title="Afficher ou masquer mes requêtes">⟨⟨</button>
+
+    <div class="logo">
+      <span class="logo-auto">Auto</span><span class="logo-pubmed">PubMed</span>
+    </div>
+    <span class="mono accroche">Veille quotidienne</span>
+
+    <span class="pousse-droite"></span>
+  </header>
+
   <div class="mise-en-page">
     {# Relecture périodique : le job de fond remplit le cache pendant la
        session, les compteurs de non-lus doivent suivre. Simple lecture en
@@ -43,6 +59,21 @@
     // surbrillance après chaque remplacement.
     document.body.addEventListener('htmx:afterSwap', (event) => {
       if (event.target.id === 'barre-laterale') marquerActive();
+    });
+
+    // Repli de la barre latérale, conservé d'une session à l'autre.
+    const bascule = document.getElementById('bascule-barre');
+
+    function appliquerRepli(replie) {
+      document.body.classList.toggle('barre-repliee', replie);
+      bascule.textContent = replie ? '⟩⟩' : '⟨⟨';
+    }
+
+    appliquerRepli(localStorage.getItem('barreRepliee') === '1');
+    bascule.addEventListener('click', () => {
+      const replie = !document.body.classList.contains('barre-repliee');
+      localStorage.setItem('barreRepliee', replie ? '1' : '0');
+      appliquerRepli(replie);
     });
   </script>
 </body>

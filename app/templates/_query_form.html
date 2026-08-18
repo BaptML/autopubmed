@@ -2,114 +2,129 @@
    PubMed : c'est l'aperçu live (ESearch) qui fait foi. #}
 
 <div class="entete-liste">
-  <div>
-    <h1>{{ "Modifier la requête" if query else "Nouvelle requête" }}</h1>
-    <div class="chaine-pubmed">
-      La syntaxe est validée par PubMed, pas par cette application.
+  <div class="rang">
+    <div class="titre-bloc">
+      <div class="surtitre">{{ "Éditeur · requête enregistrée" if query else "Éditeur · nouvelle requête" }}</div>
+      <h1>{{ "Modifier la requête" if query else "Nouvelle requête" }}</h1>
     </div>
   </div>
 </div>
 
-<form class="formulaire"
-      hx-post="{{ '/queries/' ~ query.id ~ '/edit' if query else '/queries/new' }}"
-      hx-target="#panneau" hx-swap="innerHTML">
+<div class="corps-formulaire">
 
-  <div class="champ">
-    <label for="champ-nom">Nom de la requête</label>
-    <input id="champ-nom" name="name" required maxlength="120"
-           value="{{ query.name if query else '' }}"
-           placeholder="Insuffisance cardiaque — essais">
-  </div>
+  <form class="colonne-formulaire blueprint"
+        hx-post="{{ '/queries/' ~ query.id ~ '/edit' if query else '/queries/new' }}"
+        hx-target="#panneau" hx-swap="innerHTML">
+    <i class="corner tl"></i><i class="corner tr"></i>
+    <i class="corner bl"></i><i class="corner br"></i>
 
-  <div class="champ">
-    <label for="champ-dossier">Dossier</label>
-    <input id="champ-dossier" name="folder" list="dossiers-existants" maxlength="80"
-           value="{{ query.folder if query else 'Sans dossier' }}">
-    <datalist id="dossiers-existants">
-      {% for folder in folders %}<option value="{{ folder }}">{% endfor %}
-    </datalist>
-  </div>
-
-  <div class="champ">
-    <label for="champ-requete">Chaîne PubMed</label>
-    <textarea id="champ-requete" name="pubmed_query" rows="5" required
-              placeholder='"N Engl J Med"[ta] AND randomized controlled trial[pt]'
-              hx-get="/preview" hx-trigger="keyup changed delay:500ms, load"
-              hx-target="#apercu" hx-swap="innerHTML"
-              hx-indicator="#apercu-chargement">{{ query.pubmed_query if query else '' }}</textarea>
-    <p class="aide">
-      Écris la requête ici, ou construis-la dans l'Advanced Search Builder de
-      PubMed et recolle-la. Les filtres qualité ci-dessous ne doivent
-      <strong>pas</strong> figurer dans cette chaîne.
-    </p>
-  </div>
-
-  <div id="apercu" class="apercu">
-    <span class="apercu-attente">L'aperçu apparaîtra ici.</span>
-  </div>
-
-  <div class="grille-filtres">
     <div class="champ">
-      <label for="champ-quartile">Quartile minimal (SJR)</label>
-      <select id="champ-quartile" name="quartile_min">
-        <option value="">aucun filtre</option>
-        {% for value, label in [(1, 'Q1 uniquement'), (2, 'Q1 et Q2'), (3, 'Q1 à Q3'), (4, 'Q1 à Q4')] %}
-          <option value="{{ value }}"
-            {{ 'selected' if query and query.quartile_min == value }}>{{ label }}</option>
-        {% endfor %}
-      </select>
-      <p class="aide">Les revues non classées sont écartées dès qu'un filtre est actif.</p>
+      <label for="champ-nom">Nom de la requête</label>
+      <input id="champ-nom" name="name" required maxlength="120"
+             value="{{ query.name if query else '' }}"
+             placeholder="Insuffisance cardiaque — essais">
     </div>
 
     <div class="champ">
-      <label for="champ-citedness">Citedness minimale (OpenAlex)</label>
-      <input id="champ-citedness" name="citedness_min" type="number" step="0.1" min="0"
-             value="{{ query.citedness_min if query and query.citedness_min is not none else '' }}"
-             placeholder="ex. 5">
-      <p class="aide">Moyenne de citations sur 2 ans. Laisser vide pour ne pas filtrer.</p>
+      <label for="champ-dossier">Dossier</label>
+      <input id="champ-dossier" name="folder" list="dossiers-existants" maxlength="80"
+             value="{{ query.folder if query else 'Sans dossier' }}">
+      <datalist id="dossiers-existants">
+        {% for folder in folders %}<option value="{{ folder }}">{% endfor %}
+      </datalist>
     </div>
 
     <div class="champ">
-      <label for="champ-tri">Tri d'affichage</label>
-      <select id="champ-tri" name="sort">
-        {% for value, label in [('date_desc', 'Date décroissante'), ('date_asc', 'Date croissante'), ('journal', 'Revue')] %}
-          <option value="{{ value }}"
-            {{ 'selected' if query and query.sort == value }}>{{ label }}</option>
-        {% endfor %}
-      </select>
+      <label for="champ-requete">Chaîne PubMed</label>
+      <textarea id="champ-requete" name="pubmed_query" rows="6" required
+                placeholder='"N Engl J Med"[ta] AND randomized controlled trial[pt]'
+                hx-get="/preview" hx-trigger="keyup changed delay:500ms, load"
+                hx-target="#apercu" hx-swap="innerHTML"
+                hx-indicator="#apercu-chargement">{{ query.pubmed_query if query else '' }}</textarea>
+      <p class="aide">
+        Écris la requête ici, ou construis-la dans l'Advanced Search Builder de
+        PubMed et recolle-la. Les filtres qualité ci-dessous ne doivent
+        <strong>pas</strong> figurer dans cette chaîne.
+      </p>
     </div>
-  </div>
 
-  <div class="barre-actions">
-    <button type="submit" class="bouton principal">
-      {{ "Enregistrer" if query else "Créer la requête" }}
-    </button>
-    {% if query %}
-      <button type="button" class="bouton"
-              hx-get="/queries/{{ query.id }}/articles"
-              hx-target="#panneau">Annuler</button>
-      <button type="button" class="bouton danger"
-              hx-delete="/queries/{{ query.id }}"
-              hx-target="#panneau"
-              hx-confirm="Supprimer cette requête ? Les articles restent en cache.">
-        Supprimer
+    <div class="grille-filtres">
+      <div class="champ">
+        <label for="champ-quartile">Quartile minimal (SJR)</label>
+        <select id="champ-quartile" name="quartile_min">
+          <option value="">aucun filtre</option>
+          {% for value, label in [(1, 'Q1 uniquement'), (2, 'Q1 et Q2'), (3, 'Q1 à Q3'), (4, 'Q1 à Q4')] %}
+            <option value="{{ value }}"
+              {{ 'selected' if query and query.quartile_min == value }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+        <p class="aide">Les revues non classées sont écartées dès qu'un filtre est actif.</p>
+      </div>
+
+      <div class="champ">
+        <label for="champ-citedness">Citedness minimale (OpenAlex)</label>
+        <input id="champ-citedness" name="citedness_min" type="number" step="0.1" min="0"
+               value="{{ query.citedness_min if query and query.citedness_min is not none else '' }}"
+               placeholder="ex. 5">
+        <p class="aide">Moyenne de citations sur 2 ans. Laisser vide pour ne pas filtrer.</p>
+      </div>
+
+      <div class="champ">
+        <label for="champ-tri">Tri d'affichage</label>
+        <select id="champ-tri" name="sort">
+          {% for value, label in [('date_desc', 'Date décroissante'), ('date_asc', 'Date croissante'), ('journal', 'Revue')] %}
+            <option value="{{ value }}"
+              {{ 'selected' if query and query.sort == value }}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="barre-actions">
+      <button type="submit" class="bouton principal">
+        {{ "Enregistrer" if query else "Créer la requête" }}
       </button>
-    {% endif %}
+      {% if query %}
+        <button type="button" class="bouton"
+                hx-get="/queries/{{ query.id }}/articles"
+                hx-target="#panneau">Annuler</button>
+        <button type="button" class="bouton danger"
+                hx-delete="/queries/{{ query.id }}"
+                hx-target="#panneau"
+                hx-confirm="Supprimer cette requête ? Les articles restent en cache.">
+          Supprimer
+        </button>
+      {% endif %}
+    </div>
+  </form>
+
+  <div class="colonne-laterale">
+    <section class="cadre blueprint">
+      <i class="corner tl"></i><i class="corner tr"></i>
+      <i class="corner bl"></i><i class="corner br"></i>
+      <div class="titre-cadre">Ce que PubMed répond</div>
+      <div id="apercu" class="apercu">
+        <span class="apercu-attente">L'aperçu apparaîtra ici.</span>
+      </div>
+      <span id="apercu-chargement" class="htmx-indicator aide">interrogation de PubMed…</span>
+    </section>
+
+    {# Résolveur d'abréviation : le vocabulaire vient du catalogue NLM. #}
+    <section class="cadre blueprint resolveur">
+      <i class="corner tl"></i><i class="corner tr"></i>
+      <i class="corner bl"></i><i class="corner br"></i>
+      <div class="titre-cadre">Abréviation d'une revue</div>
+      <label for="champ-revue">Nom complet de la revue</label>
+      <input id="champ-revue" type="search" name="q" autocomplete="off"
+             placeholder="New England Journal of Medicine"
+             hx-get="/journals/resolve" hx-trigger="keyup changed delay:600ms"
+             hx-target="#revues-trouvees" hx-swap="innerHTML">
+      <p class="aide">
+        PubMed attend l'abréviation NLM : « New England Journal of Medicine »
+        s'écrit <code class="a-copier">N Engl J Med</code>.
+      </p>
+      <div id="revues-trouvees"></div>
+    </section>
   </div>
-</form>
 
-<hr class="separateur">
-
-{# Résolveur d'abréviation : le vocabulaire vient du catalogue NLM. #}
-<section class="resolveur">
-  <label for="champ-revue">Trouver l'abréviation officielle d'une revue</label>
-  <input id="champ-revue" type="search" name="q" autocomplete="off"
-         placeholder="New England Journal of Medicine"
-         hx-get="/journals/resolve" hx-trigger="keyup changed delay:600ms"
-         hx-target="#revues-trouvees" hx-swap="innerHTML">
-  <p class="aide">
-    PubMed attend l'abréviation NLM : « New England Journal of Medicine »
-    s'écrit <code>N Engl J Med</code>.
-  </p>
-  <div id="revues-trouvees"></div>
-</section>
+</div>

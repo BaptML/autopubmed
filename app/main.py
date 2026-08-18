@@ -60,6 +60,14 @@ def date_fr(value: str | None) -> str:
     return rendered
 
 
+def date_courte(value: str | None) -> str:
+    """Jour et mois seuls — pour les étiquettes étroites de la barre latérale."""
+    if not value:
+        return "jamais"
+    pieces = value.partition("T")[0].split("-")
+    return f"{pieces[2]}/{pieces[1]}" if len(pieces) == 3 else pieces[0]
+
+
 _UNSET = object()  # frontière du « nouveau » pas encore déterminée
 
 
@@ -87,6 +95,7 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 templates.env.filters["date_fr"] = date_fr
+templates.env.filters["date_courte"] = date_courte
 
 
 def get_db() -> Iterator[sqlite3.Connection]:

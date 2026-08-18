@@ -1,0 +1,603 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="industry.css" />
+<link href="https://fonts.googleapis.com/css2?family=Spectral:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --font-heading: "Spectral", Georgia, serif;
+    --font-heading-weight: 600;
+    --font-body: "IBM Plex Sans", system-ui, sans-serif;
+  }
+  body { margin: 0; }
+  a:hover { color: var(--color-accent-700); text-decoration: underline; }
+  .mono { font-family: "IBM Plex Mono", ui-monospace, monospace; letter-spacing: 0.06em; text-transform: uppercase; }
+</style>
+</helmet>
+<div style="min-height: 100vh; background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); display: flex; flex-direction: column;">
+
+  <header style="position: sticky; top: 0; z-index: 40; background: var(--color-bg); border-bottom: 1px solid color-mix(in srgb, var(--color-text) 22%, transparent); display: flex; align-items: center; gap: 13.6px; padding: 0 17px; height: 54px;">
+    <button onClick="{{ toggleNav }}" title="Afficher ou masquer mes requêtes" style="{{ navToggleStyle }}">{{ navToggleIcon }}</button>
+    <div style="display: flex; align-items: stretch;">
+      <span style="display: flex; align-items: center; padding: 3px 9px; background: var(--color-accent-900); color: var(--color-bg); font-family: var(--font-heading); font-weight: 600; font-size: 24px; line-height: 1; letter-spacing: -0.02em; text-transform: uppercase;">Auto</span>
+      <span style="display: flex; align-items: center; padding: 3px 9px; border: 1px solid color-mix(in srgb, var(--color-text) 22%, transparent); border-left: 0; font-family: var(--font-heading); font-weight: 600; font-size: 24px; line-height: 1; letter-spacing: -0.02em; text-transform: uppercase; color: var(--color-accent-700);">PubMed</span>
+    </div>
+    <span class="mono" style="font-size: 9px; color: color-mix(in srgb, var(--color-text) 55%, transparent);">Veille quotidienne</span>
+    <span style="flex: 1;"></span>
+    <span class="mono" style="font-size: 9px; color: color-mix(in srgb, var(--color-text) 55%, transparent);">Synchronisé {{ syncLabel }}</span>
+    <button onClick="{{ togglePanel }}" style="{{ panelToggleStyle }}">{{ panelToggleLabel }}</button>
+  </header>
+
+  <div style="display: flex; align-items: stretch; flex: 1; min-height: 0;">
+
+  <sc-if value="{{ navOpen }}" hint-placeholder-val="{{ true }}">
+  <nav style="flex: none; width: 232px; border-right: 1px solid color-mix(in srgb, var(--color-text) 22%, transparent); display: flex; flex-direction: column; position: sticky; top: 54px; align-self: flex-start; height: calc(100vh - 54px);">
+    <div style="flex: 1; overflow: auto; padding: 17px 0;">
+      <div class="mono" style="padding: 0 17px 10.2px; font-size: 9px; color: color-mix(in srgb, var(--color-text) 50%, transparent);">Mes requêtes</div>
+      <sc-for list="{{ saved }}" as="q" hint-placeholder-count="4">
+        <button onClick="{{ q.select }}" style="{{ q.style }}">
+          <span style="display: flex; align-items: baseline; justify-content: space-between; gap: 10.2px;">
+            <span style="text-align: left; font-size: 13.5px; line-height: 1.3;">{{ q.label }}</span>
+            <span class="mono" style="flex: none; font-size: 9px; color: {{ q.unreadColor }};">{{ q.badge }}</span>
+          </span>
+          <span class="mono" style="display: block; text-align: left; font-size: 8.5px; margin-top: 5px; color: color-mix(in srgb, var(--color-text) 45%, transparent);">{{ q.meta }}</span>
+        </button>
+      </sc-for>
+      <button onClick="{{ goEditor }}" class="mono" style="margin: 13.6px 17px 0; font-size: 9px; background: none; border: 1px solid var(--color-divider); padding: 7px 10.2px; cursor: pointer; color: var(--color-accent-700);">+ Nouvelle requête</button>
+    </div>
+
+    <div style="border-top: 1px solid color-mix(in srgb, var(--color-text) 22%, transparent); padding: 13.6px 17px;">
+      <div class="mono" style="font-size: 9px; color: color-mix(in srgb, var(--color-text) 50%, transparent); margin-bottom: 10.2px;">Volume · 7 jours</div>
+      <div style="display: flex; align-items: flex-end; gap: 5px; height: 52px;">
+        <sc-for list="{{ weekBars }}" as="b" hint-placeholder-count="7">
+          <div style="flex: 1; display: flex; flex-direction: column; align-items: center; gap: 5px;">
+            <div style="{{ b.style }}"></div>
+            <span class="mono" style="font-size: 8px; color: color-mix(in srgb, var(--color-text) 45%, transparent);">{{ b.day }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </nav>
+  </sc-if>
+
+  <div style="flex: 1; min-width: 0;">
+
+    <sc-if value="{{ isJournal }}" hint-placeholder-val="{{ true }}">
+      <div>
+        <header style="position: sticky; top: 54px; z-index: 20; background: var(--color-bg); border-bottom: 1px solid color-mix(in srgb, var(--color-text) 22%, transparent); padding: 20.4px 27.2px 13.6px;">
+          <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: 20.4px;">
+            <div style="flex: 1 1 300px; min-width: 0;">
+              <div class="mono" style="font-size: 9px; color: var(--color-accent-700); margin-bottom: 5px;">État du jour · {{ todayLabel }}</div>
+              <h1 style="margin: 0; font-size: 34px; line-height: 1.06; text-wrap: pretty;">{{ activeQueryName }}</h1>
+            </div>
+            <div style="display: flex; align-items: flex-end; gap: 20.4px;">
+              <div>
+                <div class="mono" style="font-size: 8.5px; color: color-mix(in srgb, var(--color-text) 50%, transparent);">Retenus</div>
+                <div style="font-family: var(--font-heading); font-size: 30px; line-height: 1.15;">{{ totalCount }}</div>
+              </div>
+              <div>
+                <div class="mono" style="font-size: 8.5px; color: color-mix(in srgb, var(--color-text) 50%, transparent);">Non lus</div>
+                <div style="font-family: var(--font-heading); font-size: 30px; line-height: 1.15; color: var(--color-accent-700);">{{ unreadCount }}</div>
+              </div>
+              <button onClick="{{ goEditor }}" class="btn btn-secondary">Modifier la requête</button>
+            </div>
+          </div>
+          <details style="margin-top: 13.6px;">
+            <summary class="mono" style="font-size: 9px; color: var(--color-accent-700); cursor: pointer;">Voir la chaîne PubMed</summary>
+            <code style="display: block; margin-top: 6.8px; font-family: var(--font-body); font-size: 12.5px; line-height: 1.5; word-break: break-word; color: color-mix(in srgb, var(--color-text) 75%, transparent);">{{ queryString }}</code>
+          </details>
+        </header>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 27.2px; align-items: flex-start; padding: 20.4px 27.2px 68px;">
+          <section style="flex: 3 1 240px; min-width: 0;">
+            <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 13.6px; padding-bottom: 6.8px; border-bottom: 1px solid var(--color-divider);">
+              <div style="display: flex; flex-wrap: wrap; gap: 6.8px;">
+                <sc-for list="{{ filters }}" as="f" hint-placeholder-count="4">
+                  <button onClick="{{ f.select }}" style="{{ f.style }}">{{ f.label }}</button>
+                </sc-for>
+              </div>
+              <button onClick="{{ markAllRead }}" class="btn btn-ghost" style="font-size: 13px;">Tout marquer comme lu</button>
+            </div>
+
+            <sc-for list="{{ days }}" as="day" hint-placeholder-count="2">
+              <div style="margin-top: 20.4px;">
+                <div style="display: flex; align-items: baseline; gap: 13.6px; margin-bottom: 6.8px;">
+                  <h3 style="margin: 0; font-size: 20px;">{{ day.label }}</h3>
+                  <span style="flex: 1; height: 1px; background: var(--color-divider);"></span>
+                  <span class="mono" style="font-size: 9px; color: color-mix(in srgb, var(--color-text) 55%, transparent);">{{ day.countLabel }}</span>
+                </div>
+
+                <sc-for list="{{ day.articles }}" as="a" hint-placeholder-count="5">
+                  <article onClick="{{ a.open }}" style="{{ a.rowStyle }}">
+                    <div style="width: 3px; align-self: stretch; background: {{ a.markColor }}; flex: none;"></div>
+                    <div style="min-width: 0; flex: 1;">
+                      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10.2px; margin-bottom: 5px;">
+                        <span class="tag tag-accent">{{ a.type }}</span>
+                        <span class="mono" style="font-size: 9px; color: color-mix(in srgb, var(--color-text) 55%, transparent);">{{ a.journal }}</span>
+                        <span class="mono" style="font-size: 9px; color: color-mix(in srgb, var(--color-text) 40%, transparent);">{{ a.date }}</span>
+                        <sc-if value="{{ a.showIf }}" hint-placeholder-val="{{ true }}">
+                          <span class="mono" style="font-size: 9px; color: var(--color-accent-700);">IF {{ a.impact }}</span>
+                        </sc-if>
+                      </div>
+                      <h4 style="{{ a.titleStyle }}">{{ a.title }}</h4>
+                      <div style="font-size: 12.5px; color: color-mix(in srgb, var(--color-text) 62%, transparent); margin-bottom: 5px;">{{ a.authors }}</div>
+                      <sc-if value="{{ a.showExcerpt }}" hint-placeholder-val="{{ true }}">
+                        <p style="margin: 0; font-size: 13px; line-height: 1.5; color: color-mix(in srgb, var(--color-text) 70%, transparent); text-wrap: pretty; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;">{{ a.excerpt }}</p>
+                      </sc-if>
+                    </div>
+                    <button onClick="{{ a.toggleRead }}" style="{{ a.readBtnStyle }}">{{ a.readLabel }}</button>
+                  </article>
+                </sc-for>
+              </div>
+            </sc-for>
+
+            <p class="mono" style="margin: 27.2px 0 0; font-size: 9px; color: color-mix(in srgb, var(--color-text) 45%, transparent);">{{ archiveNote }}</p>
+          </section>
+
+          <sc-if value="{{ panelOpen }}" hint-placeholder-val="{{ true }}">
+          <aside style="position: sticky; top: 222px; flex: 2 1 220px; min-width: 0; max-width: 460px;">
+            <div class="blueprint" style="padding: 20.4px; display: flex; flex-direction: column; gap: 13.6px; max-height: calc(100vh - 200px); overflow: auto;">
+              <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 13.6px;">
+                <span class="mono" style="font-size: 9px; color: var(--color-accent-700);">Lecture</span>
+                <div style="display: flex; align-items: center; gap: 10.2px;">
+                  <span class="mono" style="font-size: 9px; color: color-mix(in srgb, var(--color-text) 45%, transparent);">PMID {{ sel.pmid }}</span>
+                  <button onClick="{{ togglePanel }}" title="Replier l'encart" class="mono" style="font-size: 11px; line-height: 1; padding: 3px 6px; border: 1px solid var(--color-divider); background: transparent; cursor: pointer; color: color-mix(in srgb, var(--color-text) 60%, transparent);">×</button>
+                </div>
+              </div>
+              <h2 style="margin: 0; font-size: 26px; line-height: 1.12; text-wrap: pretty;">{{ sel.title }}</h2>
+              <div style="font-size: 13px; color: color-mix(in srgb, var(--color-text) 70%, transparent);">{{ sel.authorsFull }}</div>
+              <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); border-top: 1px solid var(--color-divider); border-bottom: 1px solid var(--color-divider);">
+                <sc-for list="{{ sel.stats }}" as="s" hint-placeholder-count="3">
+                  <div style="padding: 10.2px 0;">
+                    <div class="mono" style="font-size: 8.5px; color: color-mix(in srgb, var(--color-text) 50%, transparent); margin-bottom: 3.4px;">{{ s.label }}</div>
+                    <div style="font-family: var(--font-heading); font-size: 16px; line-height: 1.25;">{{ s.value }}</div>
+                  </div>
+                </sc-for>
+              </div>
+              <div>
+                <div class="mono" style="font-size: 9px; color: color-mix(in srgb, var(--color-text) 50%, transparent); margin-bottom: 6.8px;">Résumé</div>
+                <p style="margin: 0; font-size: 14px; line-height: 1.62; text-wrap: pretty;">{{ sel.abstract }}</p>
+              </div>
+              <div style="border-left: 2px solid var(--color-accent); padding-left: 13.6px;">
+                <div class="mono" style="font-size: 9px; color: var(--color-accent-700); margin-bottom: 3.4px;">Conclusion des auteurs</div>
+                <p style="margin: 0; font-size: 13.5px; line-height: 1.55;">{{ sel.conclusion }}</p>
+              </div>
+              <div>
+                <div class="mono" style="font-size: 9px; color: color-mix(in srgb, var(--color-text) 50%, transparent); margin-bottom: 6.8px;">Termes MeSH</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 5px;">
+                  <sc-for list="{{ sel.mesh }}" as="m" hint-placeholder-count="5">
+                    <span class="tag tag-outline">{{ m.label }}</span>
+                  </sc-for>
+                </div>
+              </div>
+              <div style="display: flex; flex-wrap: wrap; gap: 6.8px; padding-top: 6.8px; border-top: 1px solid var(--color-divider);">
+                <button onClick="{{ sel.toggleRead }}" class="btn btn-primary" style="flex: 1 1 160px;">{{ sel.readLabel }}</button>
+                <a class="btn btn-secondary" href="{{ sel.url }}" target="_blank" rel="noreferrer" style="flex: 1 1 140px;">Voir sur PubMed</a>
+              </div>
+            </div>
+          </aside>
+          </sc-if>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isEditor }}" hint-placeholder-val="{{ false }}">
+      <div style="padding: 20.4px 27.2px 68px; display: flex; flex-wrap: wrap; gap: 27.2px; align-items: flex-start;">
+
+        <section class="blueprint" style="padding: 20.4px; flex: 3 1 480px; min-width: 0;">
+          <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+          <h2 style="margin: 0 0 3.4px; font-size: 28px;">Éditeur de requête avancée</h2>
+          <p style="font-size: 13px; color: color-mix(in srgb, var(--color-text) 62%, transparent); margin-bottom: 20.4px;">Chaque ligne devient un bloc de la requête PubMed. Les balises de champ sont insérées automatiquement.</p>
+
+          <div style="display: grid; grid-template-columns: minmax(64px, 92px) minmax(120px, 1fr) minmax(150px, 2fr) 36px; gap: 6.8px; align-items: end; margin-bottom: 6.8px;">
+            <span class="mono" style="font-size: 8.5px; color: color-mix(in srgb, var(--color-text) 50%, transparent);">Opérateur</span>
+            <span class="mono" style="font-size: 8.5px; color: color-mix(in srgb, var(--color-text) 50%, transparent);">Champ</span>
+            <span class="mono" style="font-size: 8.5px; color: color-mix(in srgb, var(--color-text) 50%, transparent);">Terme</span>
+            <span></span>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 6.8px;">
+            <sc-for list="{{ rows }}" as="r" hint-placeholder-count="3">
+              <div style="display: grid; grid-template-columns: minmax(64px, 92px) minmax(120px, 1fr) minmax(150px, 2fr) 36px; gap: 6.8px; align-items: center;">
+                <sc-if value="{{ r.isFirst }}" hint-placeholder-val="{{ false }}">
+                  <span class="mono" style="font-size: 9px; color: color-mix(in srgb, var(--color-text) 40%, transparent);">Bloc 1</span>
+                </sc-if>
+                <sc-if value="{{ r.notFirst }}" hint-placeholder-val="{{ true }}">
+                  <select class="input" value="{{ r.op }}" onChange="{{ r.setOp }}">
+                    <option value="AND">AND</option>
+                    <option value="OR">OR</option>
+                    <option value="NOT">NOT</option>
+                  </select>
+                </sc-if>
+                <select class="input" value="{{ r.field }}" onChange="{{ r.setField }}">
+                  <option value="tiab">Titre / Résumé [tiab]</option>
+                  <option value="mh">Terme MeSH [mh]</option>
+                  <option value="ti">Titre [ti]</option>
+                  <option value="au">Auteur [au]</option>
+                  <option value="ta">Revue [ta]</option>
+                  <option value="pt">Type de publication [pt]</option>
+                  <option value="all">Tous les champs [all]</option>
+                </select>
+                <input class="input" value="{{ r.term }}" onChange="{{ r.setTerm }}" placeholder="ex. heart failure" />
+                <button onClick="{{ r.remove }}" class="btn btn-secondary btn-icon" title="Supprimer la ligne">×</button>
+              </div>
+            </sc-for>
+          </div>
+          <button onClick="{{ addRow }}" class="btn btn-ghost" style="margin-top: 10.2px;">+ Ajouter une ligne</button>
+
+          <div style="height: 1px; background: var(--color-divider); margin: 20.4px 0;"></div>
+
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20.4px;">
+            <div class="field">
+              <label>Publié depuis</label>
+              <input class="input" value="{{ dateFrom }}" onChange="{{ setDateFrom }}" />
+            </div>
+            <div class="field">
+              <label>Publié jusqu'au</label>
+              <input class="input" value="{{ dateTo }}" onChange="{{ setDateTo }}" />
+            </div>
+          </div>
+
+          <div style="margin-top: 20.4px;">
+            <span class="mono" style="display: block; font-size: 8.5px; color: color-mix(in srgb, var(--color-text) 50%, transparent); margin-bottom: 6.8px;">Types d'article</span>
+            <div style="display: flex; flex-wrap: wrap; gap: 6.8px;">
+              <sc-for list="{{ pubTypes }}" as="p" hint-placeholder-count="6">
+                <button onClick="{{ p.toggle }}" style="{{ p.style }}">{{ p.label }}</button>
+              </sc-for>
+            </div>
+          </div>
+
+          <div style="margin-top: 20.4px; display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20.4px;">
+            <div>
+              <span class="mono" style="display: block; font-size: 8.5px; color: color-mix(in srgb, var(--color-text) 50%, transparent); margin-bottom: 6.8px;">Espèce</span>
+              <div style="display: flex; flex-wrap: wrap; gap: 6.8px;">
+                <sc-for list="{{ species }}" as="s" hint-placeholder-count="2">
+                  <button onClick="{{ s.toggle }}" style="{{ s.style }}">{{ s.label }}</button>
+                </sc-for>
+              </div>
+            </div>
+            <div>
+              <span class="mono" style="display: block; font-size: 8.5px; color: color-mix(in srgb, var(--color-text) 50%, transparent); margin-bottom: 6.8px;">Langue</span>
+              <div style="display: flex; flex-wrap: wrap; gap: 6.8px;">
+                <sc-for list="{{ langs }}" as="l" hint-placeholder-count="2">
+                  <button onClick="{{ l.toggle }}" style="{{ l.style }}">{{ l.label }}</button>
+                </sc-for>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <aside style="position: sticky; top: 20.4px; flex: 2 1 340px; min-width: 0; max-width: 500px; display: flex; flex-direction: column; gap: 20.4px;">
+          <div class="blueprint" style="padding: 20.4px;">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div class="mono" style="font-size: 9px; color: var(--color-accent-700); margin-bottom: 10.2px;">Requête générée</div>
+            <code style="display: block; font-family: var(--font-body); font-size: 13px; line-height: 1.62; word-break: break-word; color: color-mix(in srgb, var(--color-text) 82%, transparent);">{{ queryString }}</code>
+            <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 13.6px; margin-top: 20.4px; padding-top: 13.6px; border-top: 1px solid var(--color-divider);">
+              <div>
+                <div style="font-family: var(--font-heading); font-size: 32px; line-height: 1.15;">{{ estimatedHits }}</div>
+                <div class="mono" style="font-size: 8.5px; color: color-mix(in srgb, var(--color-text) 50%, transparent);">résultats estimés · {{ estimatedDaily }} / jour</div>
+              </div>
+              <button onClick="{{ runQuery }}" class="btn btn-primary">Enregistrer et lancer</button>
+            </div>
+          </div>
+
+          <div class="blueprint" style="padding: 20.4px;">
+            <i class="corner tl"></i><i class="corner tr"></i><i class="corner bl"></i><i class="corner br"></i>
+            <div class="mono" style="font-size: 9px; color: color-mix(in srgb, var(--color-text) 50%, transparent); margin-bottom: 10.2px;">Aperçu du jour</div>
+            <p style="margin: 0; font-size: 13px; line-height: 1.55; color: color-mix(in srgb, var(--color-text) 70%, transparent);">{{ editorHint }}</p>
+          </div>
+        </aside>
+      </div>
+    </sc-if>
+  </div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;showImpactFactor&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Liste&quot;},&quot;showAbstractExcerpt&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Liste&quot;}}">
+const ARTICLES = [
+  { id: 1, day: 0, q: ["q1", "q2"], pmid: "40918822", type: "Essai randomisé", journal: "N Engl J Med", impact: "158.5", date: "18 août 2026", n: "3 412", design: "Phase 3, double aveugle",
+    title: "Semaglutide and Cardiovascular Outcomes in Heart Failure with Preserved Ejection Fraction",
+    authors: "Lindqvist A, Moreau P, Okafor CN, et al.",
+    authorsFull: "Lindqvist A, Moreau P, Okafor CN, Bianchi R, Haddad S, Nyström E, Petrova I, Weller JM, et al.",
+    abstract: "Patients with heart failure and preserved ejection fraction and a body-mass index of 27 or higher were randomly assigned to once-weekly semaglutide or placebo for 52 weeks. The primary end point was a composite of cardiovascular death and worsening heart-failure events. A total of 3412 patients underwent randomization. A primary end-point event occurred in 9.4% of patients in the semaglutide group and in 13.1% in the placebo group (hazard ratio, 0.71; 95% CI, 0.58 to 0.86; P<0.001). Improvements in the KCCQ clinical summary score and in 6-minute walk distance favored semaglutide at every scheduled visit.",
+    conclusion: "Chez les patients obèses avec insuffisance cardiaque à fraction d'éjection préservée, le sémaglutide réduit les événements cardiovasculaires et améliore la capacité fonctionnelle à un an.",
+    mesh: ["Heart Failure", "Glucagon-Like Peptide-1 Receptor Agonists", "Obesity"] },
+  { id: 2, day: 0, q: ["q1"], pmid: "40918107", type: "Méta-analyse", journal: "Lancet", impact: "98.4", date: "18 août 2026", n: "24 études", design: "Données individuelles",
+    title: "Colchicine after Myocardial Infarction: Updated Individual Participant Data Meta-analysis",
+    authors: "Duarte MF, Kowalski T, Osei B, et al.",
+    authorsFull: "Duarte MF, Kowalski T, Osei B, Van Rijn D, Šimek J, Abadi L, Torrance HG.",
+    abstract: "We pooled individual participant data from 24 randomised trials of low-dose colchicine initiated within 30 days of myocardial infarction (n=28 640). Recurrent major adverse cardiovascular events occurred in 7.9% of colchicine recipients versus 9.6% of controls (rate ratio, 0.83; 95% CI, 0.75 to 0.92). The treatment effect was consistent across baseline high-sensitivity CRP strata. Gastrointestinal intolerance led to discontinuation in 6.2% versus 3.1%, with no excess in serious infection.",
+    conclusion: "La colchicine à faible dose réduit modestement mais de façon constante les récidives après infarctus, au prix d'une intolérance digestive fréquente.",
+    mesh: ["Colchicine", "Myocardial Infarction", "Secondary Prevention"] },
+  { id: 3, day: 0, q: ["q1"], pmid: "40917544", type: "Cohorte", journal: "Ann Intern Med", impact: "39.2", date: "18 août 2026", n: "412 887", design: "Émulation d'essai cible",
+    title: "SGLT2 Inhibitors and Acute Kidney Injury in Older Adults: A Target Trial Emulation",
+    authors: "Renaud C, Al-Mansouri H, Delgado V, et al.",
+    authorsFull: "Renaud C, Al-Mansouri H, Delgado V, Ferreira JP, Steiner K, Whitcombe A.",
+    abstract: "Using linked claims and laboratory data from 412 887 adults aged 70 years or older initiating either an SGLT2 inhibitor or a DPP-4 inhibitor, we emulated a target trial with inverse-probability weighting. The 12-month risk of hospitalisation for acute kidney injury was 1.8% with SGLT2 inhibitors and 2.4% with DPP-4 inhibitors (risk difference, -0.6 percentage points; 95% CI, -0.9 to -0.3). Results were unchanged when restricted to baseline eGFR below 45 mL/min/1.73 m2.",
+    conclusion: "L'initiation d'un inhibiteur de SGLT2 chez le sujet âgé n'augmente pas le risque d'insuffisance rénale aiguë hospitalisée.",
+    mesh: ["Sodium-Glucose Transporter 2 Inhibitors", "Acute Kidney Injury", "Aged"] },
+  { id: 4, day: 0, q: ["q1"], pmid: "40916930", type: "Essai randomisé", journal: "JAMA", impact: "120.7", date: "18 août 2026", n: "1 908", design: "Ouvert, multicentrique",
+    title: "Intensive versus Standard Lipid Lowering after Acute Coronary Syndrome: 3-Year Outcomes",
+    authors: "Bergström N, Iqbal S, Chevalier A, et al.",
+    authorsFull: "Bergström N, Iqbal S, Chevalier A, Marchetti L, Ouedraogo Z, Halvorsen T, Pires DA.",
+    abstract: "Patients within 14 days of an acute coronary syndrome were randomly assigned to a treat-to-target strategy (LDL cholesterol below 40 mg/dL) or to standard high-intensity statin therapy. At 3 years, the primary composite of death, myocardial infarction, stroke or coronary revascularisation occurred in 11.2% versus 14.0% of patients (hazard ratio, 0.79; 95% CI, 0.64 to 0.97). New-onset diabetes and haemorrhagic stroke did not differ between groups.",
+    conclusion: "Une cible LDL inférieure à 40 mg/dL après syndrome coronaire aigu apporte un bénéfice clinique supplémentaire sans excès d'effets indésirables à trois ans.",
+    mesh: ["Acute Coronary Syndrome", "Cholesterol, LDL", "Statins"] },
+  { id: 5, day: 0, q: ["q1", "q4"], pmid: "40916201", type: "Étude diagnostique", journal: "Circulation", impact: "37.8", date: "18 août 2026", n: "58 340", design: "Validation externe",
+    title: "Deep Learning ECG Screening for Transthyretin Amyloid Cardiomyopathy in Primary Care",
+    authors: "Sørensen KB, Ramachandran V, Fontaine É, et al.",
+    authorsFull: "Sørensen KB, Ramachandran V, Fontaine É, Njoku IA, Barbieri G, Lund AH.",
+    abstract: "A convolutional network trained on 210 000 12-lead electrocardiograms was validated in 58 340 primary-care patients aged 60 years or older. Against a reference standard of bone scintigraphy and genetic testing, the model achieved an area under the ROC curve of 0.91 (95% CI, 0.88 to 0.93). At the prespecified threshold, sensitivity was 0.84 and specificity 0.82, corresponding to 41 electrocardiograms flagged per confirmed case.",
+    conclusion: "Le dépistage électrocardiographique automatisé identifie l'amylose cardiaque à un stade traitable, mais le rendement en soins primaires reste faible.",
+    mesh: ["Amyloidosis", "Electrocardiography", "Deep Learning"] },
+  { id: 6, day: 0, q: ["q1"], pmid: "40915778", type: "Revue systématique", journal: "BMJ", impact: "105.7", date: "18 août 2026", n: "17 essais", design: "GRADE",
+    title: "Blood Pressure Targets in Frail Older Adults: Systematic Review and Network Meta-analysis",
+    authors: "Petit-Jean L, Nakamura H, Owusu K, et al.",
+    authorsFull: "Petit-Jean L, Nakamura H, Owusu K, Bergamini S, Vlaanderen J, Toft-Nielsen M.",
+    abstract: "Seventeen randomised trials (n=41 205) comparing systolic blood pressure targets in adults aged 75 years or older were combined in a network meta-analysis stratified by frailty index. Among non-frail participants, a target below 130 mm Hg reduced major cardiovascular events (odds ratio, 0.78; 95% CI, 0.69 to 0.89). Among frail participants the point estimate was null while syncope and injurious falls increased.",
+    conclusion: "Le bénéfice d'une cible tensionnelle basse s'atténue avec la fragilité alors que les effets indésirables augmentent : la décision doit être individualisée.",
+    mesh: ["Hypertension", "Frailty", "Aged, 80 and over"] },
+  { id: 7, day: 1, q: ["q1", "q3"], pmid: "40911456", type: "Essai randomisé", journal: "Eur Heart J", impact: "39.3", date: "17 août 2026", n: "2 780", design: "Suivi à 5 ans",
+    title: "Early Rhythm Control versus Usual Care in Recently Diagnosed Atrial Fibrillation: 5-Year Follow-up",
+    authors: "Kaufmann R, Silva Mendes J, Aziz F, et al.",
+    authorsFull: "Kaufmann R, Silva Mendes J, Aziz F, Halonen P, Dubois-Marchand C, Ito K.",
+    abstract: "We report the prespecified 5-year follow-up of a trial comparing early rhythm-control therapy with usual care in 2780 patients diagnosed with atrial fibrillation within the preceding 12 months. The primary composite of cardiovascular death, stroke and hospitalisation occurred at 3.2 versus 4.5 events per 100 person-years (hazard ratio, 0.72; 95% CI, 0.60 to 0.86). Catheter ablation was performed in 34% of the early-therapy group.",
+    conclusion: "Le bénéfice du contrôle précoce du rythme observé à deux ans persiste à cinq ans, sans excès d'événements graves liés au traitement.",
+    mesh: ["Atrial Fibrillation", "Catheter Ablation", "Anti-Arrhythmia Agents"] },
+  { id: 8, day: 1, q: ["q1", "q3"], pmid: "40910998", type: "Cohorte", journal: "Stroke", impact: "8.3", date: "17 août 2026", n: "6 214", design: "Registre national",
+    title: "Left Atrial Appendage Occlusion versus Direct Oral Anticoagulation after Intracerebral Haemorrhage",
+    authors: "Beaulieu M, Tanaka R, Ndiaye A, et al.",
+    authorsFull: "Beaulieu M, Tanaka R, Ndiaye A, Kristensen SE, Poirier-Lavoie J, Grimaldi F.",
+    abstract: "In a nationwide registry of 6214 survivors of intracerebral haemorrhage with atrial fibrillation, we compared left atrial appendage occlusion with direct oral anticoagulation using propensity-score overlap weighting. Over a median 3.1 years, ischaemic stroke rates were similar (1.9 versus 2.1 per 100 person-years), whereas recurrent intracranial haemorrhage was less frequent after occlusion (hazard ratio, 0.46; 95% CI, 0.31 to 0.68).",
+    conclusion: "Après hémorragie intracérébrale, l'occlusion de l'auricule gauche offre une protection thromboembolique comparable avec moins de récidives hémorragiques.",
+    mesh: ["Intracranial Hemorrhages", "Atrial Fibrillation", "Anticoagulants"] },
+  { id: 9, day: 1, q: ["q1", "q2"], pmid: "40910233", type: "Essai randomisé", journal: "Lancet", impact: "98.4", date: "17 août 2026", n: "1 140", design: "Randomisé en grappes",
+    title: "Remote Haemodynamic Monitoring in Advanced Heart Failure: A Cluster Randomised Trial",
+    authors: "Wieczorek A, Osborne T, Farid N, et al.",
+    authorsFull: "Wieczorek A, Osborne T, Farid N, Lemaître B, Kaposi Z, Andersen ML.",
+    abstract: "Fifty-two heart-failure services were randomly assigned to implantable pulmonary artery pressure monitoring or to standard remote follow-up for patients in NYHA class III. Total heart-failure hospitalisations over 18 months were 0.46 versus 0.63 per patient-year (rate ratio, 0.73; 95% CI, 0.61 to 0.88). Sensor failure occurred in 1.2% of implants and there were no device-related deaths.",
+    conclusion: "La télésurveillance des pressions pulmonaires réduit les hospitalisations dans l'insuffisance cardiaque avancée lorsqu'elle est intégrée à un service structuré.",
+    mesh: ["Heart Failure", "Telemedicine", "Hospitalization"] },
+  { id: 10, day: 1, q: ["q1", "q3"], pmid: "40909871", type: "Cohorte", journal: "Blood", impact: "25.4", date: "17 août 2026", n: "9 402", design: "Multicentrique",
+    title: "Direct Oral Anticoagulants in Cancer-Associated Atrial Fibrillation: Bleeding and Thrombotic Outcomes",
+    authors: "Hoffmann L, Barrantes M, Ivanković D, et al.",
+    authorsFull: "Hoffmann L, Barrantes M, Ivanković D, Ashworth PJ, Sekar M, Rousseau-Girard N.",
+    abstract: "Among 9402 patients with active cancer and atrial fibrillation, direct oral anticoagulants were compared with vitamin K antagonists. Major bleeding occurred in 4.1% versus 6.3% at one year (adjusted hazard ratio, 0.68; 95% CI, 0.56 to 0.83), with no difference in ischaemic stroke or systemic embolism. Platelet counts below 50 000/µL modified the effect.",
+    conclusion: "Les anticoagulants oraux directs semblent préférables aux AVK dans la fibrillation atriale du patient cancéreux, hors thrombopénie profonde.",
+    mesh: ["Neoplasms", "Atrial Fibrillation", "Hemorrhage"] }
+];
+
+const QUERIES = [
+  { id: "q1", label: "Cardiologie — essais et méta-analyses", cadence: "quotidien · 06:15", total: "1 284",
+    rows: [
+      { op: "AND", field: "tiab", term: "heart failure OR atrial fibrillation" },
+      { op: "AND", field: "mh", term: "Cardiovascular Diseases/therapy" },
+      { op: "NOT", field: "pt", term: "Case Reports" }
+    ] },
+  { id: "q2", label: "Insuffisance cardiaque · GLP-1", cadence: "quotidien · 06:15", total: "312",
+    rows: [
+      { op: "AND", field: "mh", term: "Heart Failure" },
+      { op: "AND", field: "tiab", term: "semaglutide OR tirzepatide OR GLP-1" }
+    ] },
+  { id: "q3", label: "Anticoagulation et hémorragie", cadence: "quotidien · 06:15", total: "187",
+    rows: [
+      { op: "AND", field: "mh", term: "Anticoagulants" },
+      { op: "AND", field: "tiab", term: "bleeding OR haemorrhage" }
+    ] },
+  { id: "q4", label: "IA en imagerie cardiaque", cadence: "hebdomadaire · lundi", total: "94",
+    rows: [
+      { op: "AND", field: "tiab", term: "deep learning OR machine learning" },
+      { op: "AND", field: "mh", term: "Cardiac Imaging Techniques" }
+    ] }
+];
+
+const FIELD_TAGS = { tiab: "Title/Abstract", mh: "MeSH Terms", ti: "Title", au: "Author", ta: "Journal", pt: "Publication Type", all: "All Fields" };
+const CHIP_BASE = "font-family: var(--font-body); font-weight: 500; font-size: 12px; padding: 5px 11px; border-radius: 0; cursor: pointer; border: 1px solid var(--color-divider); background: transparent; color: var(--color-text);";
+const CHIP_ON = "font-family: var(--font-body); font-weight: 500; font-size: 12px; padding: 5px 11px; border-radius: 0; cursor: pointer; border: 1px solid var(--color-accent); background: var(--color-accent); color: var(--color-bg);";
+
+class Component extends DCLogic {
+  state = {
+    view: "journal",
+    navOpen: true,
+    panelOpen: true,
+    queryId: "q1",
+    selectedId: 1,
+    read: { 7: true, 10: true },
+    filter: "Tous",
+    rows: QUERIES[0].rows,
+    dateFrom: "2026/01/01",
+    dateTo: "2026/08/18",
+    pubTypes: ["Randomized Controlled Trial", "Meta-Analysis", "Systematic Review"],
+    species: ["Humans"],
+    langs: ["Anglais", "Français"]
+  };
+
+  chip(on) { return on ? CHIP_ON : CHIP_BASE; }
+
+  toggleIn(key, value) {
+    this.setState(s => {
+      const list = s[key];
+      return { [key]: list.includes(value) ? list.filter(v => v !== value) : list.concat([value]) };
+    });
+  }
+
+  buildQuery() {
+    const { rows, dateFrom, dateTo, pubTypes, species, langs } = this.state;
+    const blocks = rows.filter(r => r.term.trim()).map((r, i) => {
+      const term = /\s(OR|AND|NOT)\s/.test(r.term) ? "(" + r.term + ")" : '"' + r.term + '"';
+      const piece = term + "[" + FIELD_TAGS[r.field] + "]";
+      return i === 0 ? piece : r.op + " " + piece;
+    });
+    let q = blocks.join(" ");
+    if (pubTypes.length) q += " AND (" + pubTypes.map(t => '"' + t + '"[Publication Type]').join(" OR ") + ")";
+    if (species.length) q += " AND (" + species.map(t => '"' + t + '"[MeSH Terms]').join(" OR ") + ")";
+    if (langs.length) q += " AND (" + langs.map(l => (l === "Anglais" ? "english" : "french") + "[Language]").join(" OR ") + ")";
+    q += ' AND ("' + dateFrom + '"[Date - Publication] : "' + dateTo + '"[Date - Publication])';
+    return q;
+  }
+
+  isRead(id) { return !!this.state.read[id]; }
+  toggleRead(id) { this.setState(s => ({ read: Object.assign({}, s.read, { [id]: !s.read[id] }) })); }
+  inQuery(a, qid) { return a.q.indexOf(qid) !== -1; }
+
+  selectQuery(q) {
+    const first = ARTICLES.filter(a => this.inQuery(a, q.id))[0];
+    this.setState({ queryId: q.id, rows: q.rows, view: "journal", filter: "Tous", selectedId: first ? first.id : this.state.selectedId });
+  }
+
+  updateRow(i, patch) {
+    this.setState(s => ({ rows: s.rows.map((r, j) => (j === i ? Object.assign({}, r, patch) : r)) }));
+  }
+
+  renderVals() {
+    const showIf = this.props.showImpactFactor ?? true;
+    const showExcerpt = this.props.showAbstractExcerpt ?? true;
+    const filter = this.state.filter;
+    const query = QUERIES.find(q => q.id === this.state.queryId) || QUERIES[0];
+    const inQuery = ARTICLES.filter(a => this.inQuery(a, query.id));
+    const visible = inQuery.filter(a => {
+      if (filter === "Non lus") return !this.isRead(a.id);
+      if (filter === "Essais randomisés") return a.type === "Essai randomisé";
+      if (filter === "Synthèses") return a.type === "Méta-analyse" || a.type === "Revue systématique";
+      return true;
+    });
+
+    const dayLabels = ["Mardi 18 août 2026", "Lundi 17 août 2026"];
+    const days = [0, 1].map(d => {
+      const list = visible.filter(a => a.day === d);
+      return {
+        label: dayLabels[d],
+        countLabel: list.length + (d === 0 ? " nouveaux" : " articles"),
+        articles: list.map(a => {
+          const read = this.isRead(a.id);
+          const selected = this.state.selectedId === a.id;
+          return {
+            type: a.type, journal: a.journal, date: a.date, impact: a.impact, showIf, showExcerpt,
+            title: a.title, authors: a.authors, excerpt: a.abstract,
+            markColor: read ? "transparent" : "var(--color-accent)",
+            rowStyle: "display: flex; gap: 13.6px; align-items: flex-start; padding: 13.6px 13.6px 13.6px 0; border-bottom: 1px solid color-mix(in srgb, var(--color-text) 8%, transparent); cursor: pointer; background: " + (selected ? "color-mix(in srgb, var(--color-accent) 9%, transparent)" : "transparent") + "; opacity: " + (read && !selected ? "0.55" : "1"),
+            titleStyle: "margin: 0 0 5px; font-size: 18px; line-height: 1.22; text-wrap: pretty; color: " + (selected ? "var(--color-accent-800)" : "var(--color-text)"),
+            readLabel: read ? "Lu" : "Marquer lu",
+            readBtnStyle: "flex: none; font-family: 'IBM Plex Mono', monospace; font-size: 9px; letter-spacing: 0.06em; text-transform: uppercase; padding: 4px 9px; border-radius: 0; cursor: pointer; border: 1px solid " + (read ? "transparent" : "var(--color-divider)") + "; background: transparent; color: color-mix(in srgb, var(--color-text) " + (read ? "40" : "70") + "%, transparent)",
+            open: () => this.setState({ selectedId: a.id, read: Object.assign({}, this.state.read, { [a.id]: true }) }),
+            toggleRead: e => { e.stopPropagation(); this.toggleRead(a.id); }
+          };
+        })
+      };
+    }).filter(d => d.articles.length);
+
+    const sa = ARTICLES.find(a => a.id === this.state.selectedId) || inQuery[0] || ARTICLES[0];
+    const selRead = this.isRead(sa.id);
+
+    return {
+      navOpen: this.state.navOpen,
+      panelOpen: this.state.panelOpen,
+      toggleNav: () => this.setState(s => ({ navOpen: !s.navOpen })),
+      togglePanel: () => this.setState(s => ({ panelOpen: !s.panelOpen })),
+      navToggleIcon: this.state.navOpen ? "⟨⟨" : "⟩⟩",
+      navToggleStyle: "font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 1; padding: 6px 8px; cursor: pointer; border: 1px solid var(--color-divider); background: " + (this.state.navOpen ? "color-mix(in srgb, var(--color-accent) 12%, transparent)" : "transparent") + "; color: var(--color-text);",
+      panelToggleLabel: this.state.panelOpen ? "Masquer l'encart" : "Afficher l'encart",
+      panelToggleStyle: "font-family: 'IBM Plex Mono', monospace; text-transform: uppercase; letter-spacing: 0.06em; font-size: 9px; padding: 7px 11px; cursor: pointer; border: 1px solid var(--color-divider); background: " + (this.state.panelOpen ? "color-mix(in srgb, var(--color-accent) 12%, transparent)" : "transparent") + "; color: var(--color-text);",
+      syncLabel: "aujourd'hui 06:15",
+      todayLabel: "mardi 18 août 2026",
+      isJournal: this.state.view === "journal",
+      isEditor: this.state.view === "editor",
+      goEditor: () => this.setState({ view: "editor" }),
+      runQuery: () => this.setState({ view: "journal" }),
+      editorHint: "La liste du jour se recharge dès l'enregistrement. Les articles déjà lus restent marqués.",
+
+      activeQueryName: query.label,
+      queryString: this.buildQuery(),
+      totalCount: visible.length,
+      unreadCount: inQuery.filter(a => !this.isRead(a.id)).length,
+      archiveNote: "Archive des 90 derniers jours · " + query.total + " articles indexés pour cette requête",
+
+      saved: QUERIES.map(q => {
+        const list = ARTICLES.filter(a => this.inQuery(a, q.id));
+        const unread = list.filter(a => !this.isRead(a.id)).length;
+        const active = q.id === this.state.queryId;
+        return {
+          label: q.label,
+          badge: unread ? unread + " nouv." : "à jour",
+          unreadColor: unread ? "var(--color-accent-700)" : "color-mix(in srgb, var(--color-text) 40%, transparent)",
+          meta: q.cadence + " · " + q.total + " au total",
+          select: () => this.selectQuery(q),
+          style: "display: block; width: 100%; padding: 10.2px 17px; border: 0; border-left: 3px solid " + (active ? "var(--color-accent)" : "transparent") + "; cursor: pointer; font-family: var(--font-body); color: var(--color-text); background: " + (active ? "color-mix(in srgb, var(--color-accent) 10%, transparent)" : "transparent")
+        };
+      }),
+
+      filters: ["Tous", "Non lus", "Essais randomisés", "Synthèses"].map(f => ({
+        label: f,
+        select: () => this.setState({ filter: f }),
+        style: this.chip(filter === f)
+      })),
+      markAllRead: () => {
+        this.setState(s => {
+          const read = Object.assign({}, s.read);
+          inQuery.forEach(a => { read[a.id] = true; });
+          return { read };
+        });
+      },
+      days,
+
+      sel: {
+        pmid: sa.pmid, title: sa.title, authorsFull: sa.authorsFull,
+        abstract: sa.abstract, conclusion: sa.conclusion,
+        url: "https://pubmed.ncbi.nlm.nih.gov/" + sa.pmid + "/",
+        stats: [
+          { label: "Revue · IF", value: sa.journal + " · " + sa.impact },
+          { label: "Effectif", value: sa.n },
+          { label: "Devis", value: sa.design }
+        ],
+        mesh: sa.mesh.map(m => ({ label: m })),
+        readLabel: selRead ? "Marquer comme non lu" : "Marquer comme lu",
+        toggleRead: () => this.toggleRead(sa.id)
+      },
+
+      rows: this.state.rows.map((r, i) => ({
+        op: r.op, field: r.field, term: r.term,
+        isFirst: i === 0, notFirst: i !== 0,
+        setOp: e => this.updateRow(i, { op: e.target.value }),
+        setField: e => this.updateRow(i, { field: e.target.value }),
+        setTerm: e => this.updateRow(i, { term: e.target.value }),
+        remove: () => this.setState(s => ({ rows: s.rows.filter((_, j) => j !== i) }))
+      })),
+      addRow: () => this.setState(s => ({ rows: s.rows.concat([{ op: "AND", field: "tiab", term: "" }]) })),
+      dateFrom: this.state.dateFrom,
+      dateTo: this.state.dateTo,
+      setDateFrom: e => this.setState({ dateFrom: e.target.value }),
+      setDateTo: e => this.setState({ dateTo: e.target.value }),
+      pubTypes: ["Randomized Controlled Trial", "Meta-Analysis", "Systematic Review", "Observational Study", "Guideline", "Review"].map(t => ({
+        label: t, toggle: () => this.toggleIn("pubTypes", t), style: this.chip(this.state.pubTypes.includes(t))
+      })),
+      species: ["Humans", "Animals"].map(t => ({
+        label: t === "Humans" ? "Humain" : "Animal", toggle: () => this.toggleIn("species", t), style: this.chip(this.state.species.includes(t))
+      })),
+      langs: ["Anglais", "Français"].map(t => ({
+        label: t, toggle: () => this.toggleIn("langs", t), style: this.chip(this.state.langs.includes(t))
+      })),
+      estimatedHits: (1284 + this.state.rows.length * 37 + this.state.pubTypes.length * 118).toLocaleString("fr-FR"),
+      estimatedDaily: Math.round((1284 + this.state.pubTypes.length * 118) / 90),
+
+      weekBars: [
+        { day: "M", v: 0.5 }, { day: "M", v: 0.72 }, { day: "J", v: 0.38 },
+        { day: "V", v: 0.86 }, { day: "S", v: 0.16 }, { day: "D", v: 0.1 }, { day: "L", v: 0.62 }
+      ].map((b, i) => ({
+        day: b.day,
+        style: "width: 100%; height: " + Math.round(b.v * 40) + "px; background: " + (i === 6 ? "var(--color-accent)" : "var(--color-accent-300)")
+      }))
+    };
+  }
+}
+
+</script>
+</body>
+</html>

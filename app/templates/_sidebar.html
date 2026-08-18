@@ -1,14 +1,5 @@
-<h1 class="titre-app">Veille <span>PubMed</span></h1>
-
-<button class="bouton nouvelle-requete"
-        hx-get="/queries/new" hx-target="#panneau" hx-swap="innerHTML">
-  + Nouvelle requête
-</button>
-
 {% if not folders %}
-  <p class="vide-message" style="padding: 20px 18px; text-align: left;">
-    Aucune requête enregistrée.
-  </p>
+  <p class="aide" style="padding: 0 17px;">Aucune requête enregistrée.</p>
 {% endif %}
 
 {% for folder in folders %}
@@ -19,9 +10,22 @@
               hx-get="/queries/{{ query.id }}/articles"
               hx-target="#panneau"
               hx-swap="innerHTML">
-        <span class="nom">{{ query.name }}</span>
-        <span class="compteur {{ 'vide' if not query.unread }}">{{ query.unread }}</span>
+        <span class="ligne-titre">
+          <span class="nom">{{ query.name }}</span>
+          <span class="compteur {{ 'vide' if not query.unread }}">
+            {{ (query.unread ~ ' nouv.') if query.unread else 'à jour' }}
+          </span>
+        </span>
+        <span class="meta-requete" title="Dernier rafraîchissement : {{ query.last_refreshed_at|date_fr }}">
+          {% if query.last_refreshed_at %}màj {{ query.last_refreshed_at|date_courte }}{% else %}jamais lancée{% endif %}
+          · {{ "{:,}".format(query.total).replace(",", " ") }} au total
+        </span>
       </button>
     {% endfor %}
   </section>
 {% endfor %}
+
+<button class="bouton mono accent nouvelle-requete"
+        hx-get="/queries/new" hx-target="#panneau" hx-swap="innerHTML">
+  + Nouvelle requête
+</button>
