@@ -393,8 +393,9 @@ body.redimensionne { cursor: col-resize; user-select: none; }
   border-left: 3px solid transparent;  /* filet accent : seul signal de non-lu */
   cursor: pointer;
 }
+/* Un article lu garde sa pleine lisibilité : le filet accent à gauche suffit
+   à distinguer les non-lus, sans atténuer le texte déjà consulté. */
 .article.non-lu { border-left-color: var(--color-accent); }
-.article:not(.non-lu):not(.selectionne) { opacity: .55; }
 .article:hover { background: color-mix(in srgb, var(--color-text) 4%, transparent); }
 .article.selectionne { background: color-mix(in srgb, var(--color-accent) 9%, transparent); }
 
