@@ -4,6 +4,7 @@ import pytest
 
 from app.pubmed import (
     parse_abstract_xml,
+    parse_authors,
     parse_doi,
     parse_esearch,
     parse_esummary_entry,
@@ -54,6 +55,14 @@ NEJM_ENTRY = {
     "essn": "1533-4406",
     "pubdate": "2024 Jan 15",
     "sortpubdate": "2024/01/15 00:00",
+    "volume": "390",
+    "issue": "2",
+    "pages": "128-139",
+    "authors": [
+        {"name": "Kosiborod MN", "authtype": "Author"},
+        {"name": "Abildstrom SZ", "authtype": "Author"},
+        {"name": "STEP-HFpEF Trial Committees", "authtype": "CollectiveName"},
+    ],
     "elocationid": "doi: 10.1056/NEJMoa2306963",
     "articleids": [
         {"idtype": "pubmed", "value": "38078870"},
@@ -83,6 +92,32 @@ def test_parse_esummary_entry_extrait_le_doi() -> None:
     assert summary is not None
     assert summary.doi == "10.1056/NEJMoa2306963"
     assert summary.doi_url == "https://doi.org/10.1056/NEJMoa2306963"
+
+
+def test_parse_esummary_entry_extrait_les_metadonnees_de_citation() -> None:
+    summary = parse_esummary_entry(NEJM_ENTRY)
+    assert summary is not None
+    assert summary.authors == (
+        "Kosiborod MN; Abildstrom SZ; STEP-HFpEF Trial Committees"
+    )
+    assert summary.journal_full == "The New England journal of medicine"
+    assert summary.volume == "390"
+    assert summary.issue == "2"
+    assert summary.pages == "128-139"
+
+
+def test_parse_authors_sans_auteur() -> None:
+    # Éditoriaux et errata arrivent sans liste d'auteurs.
+    assert parse_authors({"uid": "1"}) is None
+    assert parse_authors({"uid": "1", "authors": [{"name": "  "}]}) is None
+
+
+def test_parse_esummary_entry_sans_metadonnees_de_citation() -> None:
+    summary = parse_esummary_entry({"uid": "42", "title": "T", "source": "Rev"})
+    assert summary is not None
+    assert (summary.authors, summary.volume, summary.issue, summary.pages) == (
+        None, None, None, None,
+    )
 
 
 def test_parse_doi_retombe_sur_elocationid() -> None:

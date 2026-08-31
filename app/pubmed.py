@@ -93,6 +93,21 @@ def parse_doi(entry: dict[str, Any]) -> str | None:
     return None
 
 
+def parse_authors(entry: dict[str, Any]) -> str | None:
+    """Auteurs d'une entrée ESummary, joints par « ; », dans l'ordre publié.
+
+    ESummary donne déjà la forme attendue en Vancouver (« Doe J ») ; les
+    entrées collectives (`authtype` « CollectiveName ») sont gardées telles
+    quelles, c'est ainsi qu'on les cite.
+    """
+    noms = [
+        nom
+        for auteur in entry.get("authors") or []
+        if (nom := str(auteur.get("name") or "").strip())
+    ]
+    return "; ".join(noms) or None
+
+
 def parse_esummary_entry(entry: dict[str, Any]) -> ArticleSummary | None:
     """Transforme une entrée ESummary en ArticleSummary. None si inutilisable."""
     pmid = str(entry.get("uid") or "").strip()
@@ -108,6 +123,13 @@ def parse_esummary_entry(entry: dict[str, Any]) -> ArticleSummary | None:
         eissn=normalize_issn(entry.get("essn")),
         pub_date=parse_pub_date(entry),
         doi=parse_doi(entry),
+        authors=parse_authors(entry),
+        # Titre complet de la revue : c'est lui qu'attendent Zotero et le
+        # BibTeX, là où l'affichage garde l'abréviation NLM.
+        journal_full=(entry.get("fulljournalname") or "").strip() or None,
+        volume=(entry.get("volume") or "").strip() or None,
+        issue=(entry.get("issue") or "").strip() or None,
+        pages=(entry.get("pages") or "").strip() or None,
     )
 
 
