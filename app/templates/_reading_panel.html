@@ -25,6 +25,15 @@
       <span class="etiquette">Publié le</span>
       <span class="valeur">{{ article.pub_date|date_fr }}</span>
     </div>
+    {% if article.doi %}
+      <div>
+        <span class="etiquette">DOI</span>
+        <a class="valeur lien-doi"
+           href="https://doi.org/{{ article.doi }}"
+           target="_blank" rel="noopener"
+           title="Ouvrir l'article original chez l'éditeur">{{ article.doi }} ↗</a>
+      </div>
+    {% endif %}
   </div>
 
   <div class="titre-cadre">Résumé</div>

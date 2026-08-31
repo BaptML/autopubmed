@@ -21,6 +21,14 @@
     <span class="revue">{{ article.journal or "revue inconnue" }}</span>
     <span class="date">{{ article.pub_date|date_fr }}</span>
     <span class="pmid">PMID {{ article.pmid }}</span>
+    {# Le lien ouvre l'éditeur dans un onglet ; sans stopPropagation, le clic
+       remonterait à la ligne et ouvrirait aussi l'encart. #}
+    {% if article.doi %}
+      <a class="pmid lien-doi" href="https://doi.org/{{ article.doi }}"
+         target="_blank" rel="noopener"
+         onclick="event.stopPropagation()"
+         title="Ouvrir l'article original chez l'éditeur">DOI ↗</a>
+    {% endif %}
     {# « consume » arrête la propagation : basculer l'état de lecture ne doit
        pas ouvrir l'article dans l'encart. #}
     <button class="bouton mono lien-lecture"

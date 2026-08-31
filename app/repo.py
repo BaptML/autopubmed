@@ -148,14 +148,18 @@ def upsert_article(conn: sqlite3.Connection, summary: ArticleSummary) -> None:
     """Insère ou rafraîchit les métadonnées. Le résumé déjà en cache est conservé."""
     conn.execute(
         """
-        INSERT INTO articles (pmid, title, journal, issn, eissn, pub_date, url, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO articles
+            (pmid, title, journal, issn, eissn, pub_date, doi, url, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(pmid) DO UPDATE SET
             title = excluded.title,
             journal = excluded.journal,
             issn = excluded.issn,
             eissn = excluded.eissn,
             pub_date = excluded.pub_date,
+            -- Une réponse sans DOI ('') n'efface pas celui déjà connu, mais
+            -- laisse la trace « interrogé » : plus de rattrapage inutile.
+            doi = COALESCE(NULLIF(excluded.doi, ''), articles.doi, ''),
             fetched_at = excluded.fetched_at
         """,
         (
@@ -165,6 +169,7 @@ def upsert_article(conn: sqlite3.Connection, summary: ArticleSummary) -> None:
             summary.issn,
             summary.eissn,
             summary.pub_date,
+            summary.doi or "",  # '' = esummary interrogé, aucun DOI publié
             summary.url,
             utcnow_iso(),
         ),
@@ -182,9 +187,26 @@ def known_pmids(conn: sqlite3.Connection, pmids: list[str]) -> set[str]:
     return {row["pmid"] for row in rows}
 
 
+def pmids_missing_doi(conn: sqlite3.Connection, pmids: list[str]) -> set[str]:
+    """PMID enregistrés avant l'ajout de la colonne `doi`, donc à réinterroger.
+
+    Seul NULL compte : une chaîne vide signifie « esummary interrogé, aucun
+    DOI publié », et ne doit pas relancer un appel à chaque rafraîchissement.
+    """
+    if not pmids:
+        return set()
+    placeholders = ",".join("?" * len(pmids))
+    rows = conn.execute(
+        f"SELECT pmid FROM articles WHERE doi IS NULL AND pmid IN ({placeholders})",
+        pmids,
+    ).fetchall()
+    return {row["pmid"] for row in rows}
+
+
 def get_article_summary(conn: sqlite3.Connection, pmid: str) -> ArticleSummary | None:
     row = conn.execute(
-        "SELECT pmid, title, journal, issn, eissn, pub_date FROM articles WHERE pmid = ?",
+        "SELECT pmid, title, journal, issn, eissn, pub_date, doi "
+        "FROM articles WHERE pmid = ?",
         (pmid,),
     ).fetchone()
     if row is None:
@@ -196,6 +218,7 @@ def get_article_summary(conn: sqlite3.Connection, pmid: str) -> ArticleSummary |
         issn=row["issn"],
         eissn=row["eissn"],
         pub_date=row["pub_date"],
+        doi=row["doi"],
     )
 
 
@@ -272,7 +295,7 @@ def _article_select(where: str, order_by: str) -> str:
     les horodatages sont des chaînes ISO en UTC, donc comparables telles quelles.
     """
     return f"""
-        SELECT a.pmid, a.title, a.journal, a.pub_date, a.url,
+        SELECT a.pmid, a.title, a.journal, a.pub_date, a.url, a.doi,
                a.abstract IS NOT NULL AS has_abstract,
                substr(a.abstract, 1, 300) AS abstract_excerpt,
                qa.read, qa.first_seen, qa.query_id,

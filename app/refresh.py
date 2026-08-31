@@ -134,17 +134,30 @@ async def refresh_query(
         repo.mark_refreshed(conn, query.id)
         return report
 
-    # 2. Enrichir — seulement les PMID inconnus ; jamais de résumé ici.
+    # 2. Enrichir — les PMID inconnus, plus ceux dont le DOI manque encore
+    #    (colonne ajoutée après coup) ; jamais de résumé ici.
     already_known = repo.known_pmids(conn, search.pmids)
-    to_fetch = [pmid for pmid in search.pmids if pmid not in already_known]
+    to_refill = repo.pmids_missing_doi(conn, sorted(already_known))
+    to_fetch = [
+        pmid
+        for pmid in search.pmids
+        if pmid not in already_known or pmid in to_refill
+    ]
     summaries = await pubmed.esummary(to_fetch) if to_fetch else []
     report.newly_summarized = len(summaries)
     for summary in summaries:
         repo.upsert_article(conn, summary)
 
+    # Les articles réinterrogés sont déjà dans `summaries` : les reprendre ici
+    # les compterait deux fois dans le rapport.
+    refetched = {s.pmid for s in summaries}
     known_summaries = [
         s
-        for s in (repo.get_article_summary(conn, pmid) for pmid in already_known)
+        for s in (
+            repo.get_article_summary(conn, pmid)
+            for pmid in already_known
+            if pmid not in refetched
+        )
         if s is not None
     ]
     all_summaries = summaries + known_summaries

@@ -76,6 +76,23 @@ def parse_pub_date(entry: dict[str, Any]) -> str | None:
     return f"{year}-{month}-{int(day):02d}"
 
 
+def parse_doi(entry: dict[str, Any]) -> str | None:
+    """DOI d'une entrée ESummary.
+
+    `articleids` est la source fiable ; `elocationid` (« doi: 10.xxxx/yyy »)
+    sert de secours car il porte parfois un numéro de page à la place.
+    """
+    for identifier in entry.get("articleids") or []:
+        if str(identifier.get("idtype") or "").lower() == "doi":
+            value = str(identifier.get("value") or "").strip()
+            if value:
+                return value
+    elocation = str(entry.get("elocationid") or "").strip()
+    if elocation.lower().startswith("doi:"):
+        return elocation[4:].strip() or None
+    return None
+
+
 def parse_esummary_entry(entry: dict[str, Any]) -> ArticleSummary | None:
     """Transforme une entrée ESummary en ArticleSummary. None si inutilisable."""
     pmid = str(entry.get("uid") or "").strip()
@@ -90,6 +107,7 @@ def parse_esummary_entry(entry: dict[str, Any]) -> ArticleSummary | None:
         issn=normalize_issn(entry.get("issn")),
         eissn=normalize_issn(entry.get("essn")),
         pub_date=parse_pub_date(entry),
+        doi=parse_doi(entry),
     )
 
 

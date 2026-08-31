@@ -151,6 +151,35 @@ def test_esummary_n_est_pas_rappele_pour_les_articles_connus(db: Path) -> None:
     assert sorted(fake.esummary_calls[0]) == ["1", "2", "3", "4", "5"]
 
 
+def test_les_articles_sans_doi_connu_ne_sont_pas_reinterroges(db: Path) -> None:
+    """Un article dont PubMed ne publie pas de DOI ne doit pas être refetché."""
+    fake = FakePubMed(ARTICLES)  # aucun ARTICLES n'a de DOI
+    with get_conn(db) as conn:
+        query_id = repo.create_query(conn, name="A", pubmed_query="x")
+        _run(conn, query_id, fake)
+        _run(conn, query_id, fake)
+
+    assert len(fake.esummary_calls) == 1
+
+
+def test_les_articles_anterieurs_a_la_colonne_doi_sont_rattrapes(db: Path) -> None:
+    """Une ligne avec `doi` à NULL date d'avant la migration : on la complète."""
+    avec_doi = ArticleSummary(
+        pmid="1", title="Titre 1", journal="N Engl J Med",
+        issn=NEJM_ISSN, eissn=None, pub_date="2026-01-15", doi="10.1056/x",
+    )
+    fake = FakePubMed([avec_doi])
+    with get_conn(db) as conn:
+        query_id = repo.create_query(conn, name="A", pubmed_query="x")
+        _run(conn, query_id, fake)
+        conn.execute("UPDATE articles SET doi = NULL WHERE pmid = '1'")
+        _run(conn, query_id, fake)
+
+        assert repo.get_article_summary(conn, "1").doi == "10.1056/x"
+
+    assert fake.esummary_calls == [["1"], ["1"]]
+
+
 def test_last_refreshed_at_est_horodate(db: Path) -> None:
     fake = FakePubMed(ARTICLES)
     with get_conn(db) as conn:

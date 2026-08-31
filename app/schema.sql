@@ -32,6 +32,9 @@ CREATE TABLE IF NOT EXISTS articles (
     issn       TEXT,
     eissn      TEXT,
     pub_date   TEXT,
+    -- DOI tel que renvoyé par ESummary, sans préfixe ni URL. '' = interrogé
+    -- sans résultat ; NULL = ligne antérieure à l'ajout de la colonne.
+    doi        TEXT,
     url        TEXT NOT NULL,
     fetched_at TEXT NOT NULL
 );

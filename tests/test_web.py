@@ -39,6 +39,7 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
                 issn="00284793",
                 eissn=None,
                 pub_date="2026-08-13",
+                doi="10.1056/NEJMoa2306963",
             ),
         )
         repo.link_article(conn, query_id, "40000001")
@@ -93,6 +94,25 @@ def test_liste_d_articles_affiche_titre_revue_et_badge(client: TestClient) -> No
     assert (
         f'hx-get="/articles/40000001/panel?query_id={client.query_id}"' in response.text
     )
+
+
+def test_le_doi_est_un_lien_vers_l_editeur(client: TestClient) -> None:
+    lien = 'href="https://doi.org/10.1056/NEJMoa2306963"'
+    liste = client.get(f"/queries/{client.query_id}/articles")
+    assert lien in liste.text
+    # Sans stopPropagation, le clic sur le lien ouvrirait aussi l'encart.
+    assert "event.stopPropagation()" in liste.text
+
+    encart = client.get(f"/articles/40000001/panel?query_id={client.query_id}")
+    assert lien in encart.text
+    assert "10.1056/NEJMoa2306963" in encart.text
+
+
+def test_article_sans_doi_n_affiche_pas_de_lien(client: TestClient) -> None:
+    with get_conn(client.db_path) as conn:
+        conn.execute("UPDATE articles SET doi = '' WHERE pmid = '40000001'")
+    liste = client.get(f"/queries/{client.query_id}/articles")
+    assert "doi.org" not in liste.text
 
 
 def test_liste_vide_explique_comment_la_remplir(client: TestClient) -> None:

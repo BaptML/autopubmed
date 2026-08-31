@@ -61,6 +61,7 @@ def get_conn(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
 # table de rattrapage — les prochains ajouts se branchent ici.
 _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("queries", "max_age_years", "INTEGER"),
+    ("articles", "doi", "TEXT"),
 )
 
 

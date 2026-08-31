@@ -4,6 +4,7 @@ import pytest
 
 from app.pubmed import (
     parse_abstract_xml,
+    parse_doi,
     parse_esearch,
     parse_esummary_entry,
     parse_nlmcatalog_xml,
@@ -53,6 +54,11 @@ NEJM_ENTRY = {
     "essn": "1533-4406",
     "pubdate": "2024 Jan 15",
     "sortpubdate": "2024/01/15 00:00",
+    "elocationid": "doi: 10.1056/NEJMoa2306963",
+    "articleids": [
+        {"idtype": "pubmed", "value": "38078870"},
+        {"idtype": "doi", "value": "10.1056/NEJMoa2306963"},
+    ],
 }
 
 
@@ -70,6 +76,32 @@ def test_parse_esummary_entry_prend_l_abreviation_nlm() -> None:
     assert summary is not None
     assert summary.journal == "N Engl J Med"
     assert summary.url == "https://pubmed.ncbi.nlm.nih.gov/39energy/"
+
+
+def test_parse_esummary_entry_extrait_le_doi() -> None:
+    summary = parse_esummary_entry(NEJM_ENTRY)
+    assert summary is not None
+    assert summary.doi == "10.1056/NEJMoa2306963"
+    assert summary.doi_url == "https://doi.org/10.1056/NEJMoa2306963"
+
+
+def test_parse_doi_retombe_sur_elocationid() -> None:
+    entry = {"uid": "1", "elocationid": "doi: 10.1001/jama.2024.0001"}
+    assert parse_doi(entry) == "10.1001/jama.2024.0001"
+
+
+def test_parse_doi_absent() -> None:
+    # `elocationid` porte parfois une pagination ou un pii, jamais un DOI.
+    assert parse_doi({"uid": "1", "elocationid": "e12345"}) is None
+    assert parse_doi({"uid": "1", "articleids": [{"idtype": "pii", "value": "S01"}]}) is None
+    assert parse_doi({}) is None
+
+
+def test_parse_esummary_entry_sans_doi() -> None:
+    summary = parse_esummary_entry({"uid": "42", "title": "T", "source": "Rev"})
+    assert summary is not None
+    assert summary.doi is None
+    assert summary.doi_url is None
 
 
 def test_parse_esummary_entry_en_erreur() -> None:

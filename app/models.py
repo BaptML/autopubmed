@@ -15,10 +15,18 @@ class ArticleSummary:
     issn: str | None  # normalisé, ISSN papier
     eissn: str | None  # normalisé, ISSN électronique
     pub_date: str | None  # ISO 8601
+    # Ajouté après coup, d'où la valeur par défaut : les articles déjà en base
+    # n'ont pas de DOI tant qu'ils n'ont pas été réinterrogés.
+    doi: str | None = None
 
     @property
     def url(self) -> str:
         return f"https://pubmed.ncbi.nlm.nih.gov/{self.pmid}/"
+
+    @property
+    def doi_url(self) -> str | None:
+        """Lien resolveur vers l'article original chez l'éditeur."""
+        return f"https://doi.org/{self.doi}" if self.doi else None
 
     def issn_candidates(self) -> list[str]:
         """ISSN à essayer pour la jointure qualité, sans doublon."""
