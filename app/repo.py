@@ -149,8 +149,9 @@ def upsert_article(conn: sqlite3.Connection, summary: ArticleSummary) -> None:
     conn.execute(
         """
         INSERT INTO articles
-            (pmid, title, journal, issn, eissn, pub_date, doi, url, fetched_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (pmid, title, journal, issn, eissn, pub_date, doi,
+             authors, journal_full, volume, issue, pages, url, fetched_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(pmid) DO UPDATE SET
             title = excluded.title,
             journal = excluded.journal,
@@ -160,6 +161,12 @@ def upsert_article(conn: sqlite3.Connection, summary: ArticleSummary) -> None:
             -- Une réponse sans DOI ('') n'efface pas celui déjà connu, mais
             -- laisse la trace « interrogé » : plus de rattrapage inutile.
             doi = COALESCE(NULLIF(excluded.doi, ''), articles.doi, ''),
+            authors = COALESCE(NULLIF(excluded.authors, ''), articles.authors, ''),
+            journal_full = COALESCE(
+                NULLIF(excluded.journal_full, ''), articles.journal_full, ''),
+            volume = COALESCE(NULLIF(excluded.volume, ''), articles.volume, ''),
+            issue = COALESCE(NULLIF(excluded.issue, ''), articles.issue, ''),
+            pages = COALESCE(NULLIF(excluded.pages, ''), articles.pages, ''),
             fetched_at = excluded.fetched_at
         """,
         (
@@ -170,6 +177,11 @@ def upsert_article(conn: sqlite3.Connection, summary: ArticleSummary) -> None:
             summary.eissn,
             summary.pub_date,
             summary.doi or "",  # '' = esummary interrogé, aucun DOI publié
+            summary.authors or "",
+            summary.journal_full or "",
+            summary.volume or "",
+            summary.issue or "",
+            summary.pages or "",
             summary.url,
             utcnow_iso(),
         ),
@@ -205,8 +217,8 @@ def pmids_missing_doi(conn: sqlite3.Connection, pmids: list[str]) -> set[str]:
 
 def get_article_summary(conn: sqlite3.Connection, pmid: str) -> ArticleSummary | None:
     row = conn.execute(
-        "SELECT pmid, title, journal, issn, eissn, pub_date, doi "
-        "FROM articles WHERE pmid = ?",
+        "SELECT pmid, title, journal, issn, eissn, pub_date, doi, "
+        "authors, journal_full, volume, issue, pages FROM articles WHERE pmid = ?",
         (pmid,),
     ).fetchone()
     if row is None:
@@ -219,6 +231,11 @@ def get_article_summary(conn: sqlite3.Connection, pmid: str) -> ArticleSummary |
         eissn=row["eissn"],
         pub_date=row["pub_date"],
         doi=row["doi"],
+        authors=row["authors"],
+        journal_full=row["journal_full"],
+        volume=row["volume"],
+        issue=row["issue"],
+        pages=row["pages"],
     )
 
 
@@ -288,6 +305,19 @@ def folders_with_queries(conn: sqlite3.Connection) -> list[dict]:
     return [{"name": name, "queries": queries} for name, queries in folders.items()]
 
 
+# Colonnes d'article communes à la liste d'une requête et à celle des favoris :
+# les deux vues rendent le même gabarit de ligne, elles doivent donc offrir les
+# mêmes clés.
+_ARTICLE_COLUMNS = f"""
+        a.pmid, a.title, a.journal, a.pub_date, a.url, a.doi,
+        a.authors, a.journal_full, a.volume, a.issue, a.pages,
+        a.abstract IS NOT NULL AS has_abstract,
+        substr(a.abstract, 1, 300) AS abstract_excerpt,
+        EXISTS(SELECT 1 FROM favorites f WHERE f.pmid = a.pmid) AS is_favorite,
+        {_QUARTILE_SUBQUERY}
+"""
+
+
 def _article_select(where: str, order_by: str) -> str:
     """Fabrique la requête de lecture d'articles, seule forme utilisée par l'UI.
 
@@ -295,12 +325,9 @@ def _article_select(where: str, order_by: str) -> str:
     les horodatages sont des chaînes ISO en UTC, donc comparables telles quelles.
     """
     return f"""
-        SELECT a.pmid, a.title, a.journal, a.pub_date, a.url, a.doi,
-               a.abstract IS NOT NULL AS has_abstract,
-               substr(a.abstract, 1, 300) AS abstract_excerpt,
+        SELECT {_ARTICLE_COLUMNS},
                qa.read, qa.first_seen, qa.query_id,
-               (? IS NOT NULL AND qa.first_seen > ?) AS is_new,
-               {_QUARTILE_SUBQUERY}
+               (? IS NOT NULL AND qa.first_seen > ?) AS is_new
         FROM query_articles qa
         JOIN articles a ON a.pmid = qa.pmid
         WHERE {where}
@@ -324,12 +351,16 @@ def list_articles_for_query(
     sort: str = "date_desc",
     new_since: str | None = None,
     max_age_years: int | None = None,
+    favorites_only: bool = False,
 ) -> list[dict]:
     """Articles d'une requête, tels quels depuis le cache — aucun appel réseau."""
     order_by = _SORT_CLAUSES.get(sort, _SORT_CLAUSES["date_desc"])
     cutoff = cutoff_date(max_age_years)
+    where = f"qa.query_id = ? AND {_AGE_CLAUSE}"
+    if favorites_only:
+        where += " AND EXISTS(SELECT 1 FROM favorites f WHERE f.pmid = a.pmid)"
     rows = conn.execute(
-        _article_select(f"qa.query_id = ? AND {_AGE_CLAUSE}", order_by),
+        _article_select(where, order_by),
         (new_since, new_since, query_id, cutoff, cutoff),
     ).fetchall()
     return [dict(row) for row in rows]
@@ -344,6 +375,68 @@ def get_article_row(
         (new_since, new_since, query_id, pmid),
     ).fetchone()
     return dict(row) if row else None
+
+
+# --- Favoris ---------------------------------------------------------------
+
+
+def set_favorite(conn: sqlite3.Connection, pmid: str, favorite: bool) -> None:
+    """Ajoute ou retire un article de la bibliographie. Global à l'article."""
+    if favorite:
+        conn.execute(
+            "INSERT OR IGNORE INTO favorites (pmid, added_at) VALUES (?, ?)",
+            (pmid, utcnow_iso()),
+        )
+    else:
+        conn.execute("DELETE FROM favorites WHERE pmid = ?", (pmid,))
+
+
+def count_favorites(conn: sqlite3.Connection) -> int:
+    return conn.execute("SELECT COUNT(*) AS n FROM favorites").fetchone()["n"]
+
+
+def list_favorite_articles(
+    conn: sqlite3.Connection, new_since: str | None = None
+) -> list[dict]:
+    """Favoris, du plus récemment étoilé au plus ancien.
+
+    `LEFT JOIN` volontaire : un favori dont la requête d'origine a été
+    supprimée doit rester dans la bibliographie, même sans `query_id`. Un
+    article présent dans plusieurs requêtes n'apparaît qu'une fois, rattaché
+    à la première d'entre elles.
+    """
+    rows = conn.execute(
+        f"""
+        SELECT {_ARTICLE_COLUMNS},
+               COALESCE(MAX(qa.read), 0) AS read,
+               MIN(qa.first_seen) AS first_seen,
+               MIN(qa.query_id) AS query_id,
+               (? IS NOT NULL AND MIN(qa.first_seen) > ?) AS is_new
+        FROM favorites fav
+        JOIN articles a ON a.pmid = fav.pmid
+        LEFT JOIN query_articles qa ON qa.pmid = a.pmid
+        GROUP BY a.pmid
+        ORDER BY fav.added_at DESC, a.pmid DESC
+        """,
+        (new_since, new_since),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def favorites_missing_citation(conn: sqlite3.Connection) -> list[str]:
+    """Favoris dont les métadonnées de citation n'ont jamais été récupérées.
+
+    `''` signifie « interrogé, aucun auteur publié » : seul NULL déclenche un
+    nouvel appel.
+    """
+    rows = conn.execute(
+        "SELECT fav.pmid FROM favorites fav JOIN articles a ON a.pmid = fav.pmid "
+        "WHERE a.authors IS NULL ORDER BY fav.pmid"
+    ).fetchall()
+    return [row["pmid"] for row in rows]
+
+
+# --- Suivi de lecture ------------------------------------------------------
 
 
 def set_read(conn: sqlite3.Connection, query_id: int, pmid: str, read: bool) -> None:

@@ -62,6 +62,11 @@ def get_conn(db_path: Path | None = None) -> Iterator[sqlite3.Connection]:
 _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("queries", "max_age_years", "INTEGER"),
     ("articles", "doi", "TEXT"),
+    ("articles", "authors", "TEXT"),
+    ("articles", "journal_full", "TEXT"),
+    ("articles", "volume", "TEXT"),
+    ("articles", "issue", "TEXT"),
+    ("articles", "pages", "TEXT"),
 )
 
 

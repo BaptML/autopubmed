@@ -35,6 +35,13 @@ CREATE TABLE IF NOT EXISTS articles (
     -- DOI tel que renvoyé par ESummary, sans préfixe ni URL. '' = interrogé
     -- sans résultat ; NULL = ligne antérieure à l'ajout de la colonne.
     doi        TEXT,
+    -- Métadonnées de citation, remplies à la demande quand l'article est mis
+    -- en favori. Même convention que `doi` : '' = interrogé, rien à dire.
+    authors      TEXT,  -- noms ESummary (« Doe J »), joints par « ; »
+    journal_full TEXT,  -- titre complet de la revue, pour la bibliographie
+    volume       TEXT,
+    issue        TEXT,
+    pages        TEXT,
     url        TEXT NOT NULL,
     fetched_at TEXT NOT NULL
 );
@@ -62,6 +69,13 @@ CREATE TABLE IF NOT EXISTS journal_quality (
     -- celles de l'autre.
     source       TEXT,
     updated_at   TEXT NOT NULL
+);
+
+-- Favoris : la bibliographie personnelle. Global à l'article et non lié à une
+-- requête, pour que la liste reste unique quelle que soit la requête d'origine.
+CREATE TABLE IF NOT EXISTS favorites (
+    pmid     TEXT PRIMARY KEY REFERENCES articles(pmid) ON DELETE CASCADE,
+    added_at TEXT NOT NULL
 );
 
 -- État de l'application, en clé/valeur. Sert à retenir l'horodatage de la

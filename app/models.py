@@ -18,6 +18,12 @@ class ArticleSummary:
     # Ajouté après coup, d'où la valeur par défaut : les articles déjà en base
     # n'ont pas de DOI tant qu'ils n'ont pas été réinterrogés.
     doi: str | None = None
+    # Métadonnées de citation, remplies seulement pour les favoris.
+    authors: str | None = None  # noms joints par « ; », dans l'ordre ESummary
+    journal_full: str | None = None
+    volume: str | None = None
+    issue: str | None = None
+    pages: str | None = None
 
     @property
     def url(self) -> str:
