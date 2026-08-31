@@ -388,6 +388,81 @@ def test_resolveur_ignore_les_termes_trop_courts(client: TestClient) -> None:
     assert "<li>" not in response.text
 
 
+def test_bibliographie_vide(client: TestClient) -> None:
+    reponse = client.get("/favorites")
+    assert reponse.status_code == 200
+    assert "Aucun favori" in reponse.text
+
+
+def test_bibliographie_liste_les_favoris(client: TestClient) -> None:
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "UPDATE articles SET authors = 'Kosiborod MN', volume = '390', "
+            "issue = '2', pages = '128-139' WHERE pmid = '40000001'"
+        )
+        repo.set_favorite(conn, "40000001", True)
+
+    reponse = client.get("/favorites")
+    assert reponse.status_code == 200
+    assert "Semaglutide in Heart Failure" in reponse.text
+    assert "Kosiborod MN. Semaglutide in Heart Failure." in reponse.text
+    assert "2026;390(2):128-139" in reponse.text
+
+
+def test_export_bibtex_est_un_fichier_telechargeable(client: TestClient) -> None:
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "UPDATE articles SET authors = 'Kosiborod MN' WHERE pmid = '40000001'"
+        )
+        repo.set_favorite(conn, "40000001", True)
+
+    reponse = client.get("/favorites/export.bib")
+    assert reponse.status_code == 200
+    assert reponse.headers["content-disposition"] == (
+        'attachment; filename="favoris.bib"'
+    )
+    assert "@article{kosiborod2026semaglutide," in reponse.text
+    assert "doi     = {10.1056/NEJMoa2306963}" in reponse.text
+
+
+def test_export_bibtex_rattrape_les_metadonnees_manquantes(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Un favori pose hors ligne se complete au moment de l'export."""
+    with get_conn(client.db_path) as conn:
+        conn.execute("UPDATE articles SET authors = NULL WHERE pmid = '40000001'")
+        repo.set_favorite(conn, "40000001", True)
+    complet = ArticleSummary(
+        pmid="40000001",
+        title="Semaglutide in Heart Failure",
+        journal="N Engl J Med",
+        issn="00284793",
+        eissn=None,
+        pub_date="2026-08-13",
+        authors="Kosiborod MN",
+        volume="390",
+    )
+    fake = FakePubMedClient(summaries=[complet])
+    monkeypatch.setattr("app.main.PubMedClient", lambda: fake)
+
+    reponse = client.get("/favorites/export.bib")
+    assert fake.esummary_calls == [["40000001"]]
+    assert "author  = {Kosiborod, MN}" in reponse.text
+
+    # Le lot est rattrape une fois pour toutes : plus d'appel au coup suivant.
+    fake.esummary_calls.clear()
+    client.get("/favorites/export.bib")
+    assert fake.esummary_calls == []
+
+
+def test_barre_laterale_montre_le_compteur_de_favoris(client: TestClient) -> None:
+    assert "★ Bibliographie" in client.get("/queries").text
+
+    with get_conn(client.db_path) as conn:
+        repo.set_favorite(conn, "40000001", True)
+    assert "1 réf." in client.get("/queries").text
+
+
 def test_l_etoile_complete_les_metadonnees_de_citation(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

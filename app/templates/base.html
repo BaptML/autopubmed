@@ -68,10 +68,43 @@
         return;
       }
       const ligne = event.target.closest('.article');
-      if (ligne && !event.target.closest('.lien-lecture')) {
+      // Les commandes de ligne ne sélectionnent pas l'article : elles ne
+      // l'ouvrent pas dans l'encart.
+      if (ligne && !event.target.closest('.lien-lecture, .lien-favori, .lien-doi')) {
         articleActif = ligne.id;
         marquerArticle();
       }
+    });
+
+    // Copie du bloc désigné par [data-copier] (la bibliographie). L'API
+    // presse-papier n'existe qu'en contexte sécurisé, et l'application tourne
+    // en HTTP sur le réseau local : d'où la reprise par un textarea masqué.
+    document.body.addEventListener('click', async (event) => {
+      const bouton = event.target.closest('[data-copier]');
+      if (!bouton) return;
+      const cible = document.querySelector(bouton.dataset.copier);
+      if (!cible) return;
+
+      const texte = cible.innerText;
+      let copie = false;
+      try {
+        await navigator.clipboard.writeText(texte);
+        copie = true;
+      } catch (_) {
+        const zone = document.createElement('textarea');
+        zone.value = texte;
+        zone.setAttribute('readonly', '');
+        zone.style.position = 'fixed';
+        zone.style.opacity = '0';
+        document.body.appendChild(zone);
+        zone.select();
+        copie = document.execCommand('copy');
+        zone.remove();
+      }
+
+      const avant = bouton.textContent;
+      bouton.textContent = copie ? 'Copié ✓' : 'Copie impossible';
+      setTimeout(() => { bouton.textContent = avant; }, 1600);
     });
 
     // Les fragments sont réécrits en permanence (barre latérale périodique,

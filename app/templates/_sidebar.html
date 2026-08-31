@@ -1,3 +1,16 @@
+{# La bibliographie n'est pas une requête : elle ne se rafraîchit pas et
+   traverse tous les dossiers, d'où sa place à part, en tête. #}
+<button class="lien-requete lien-biblio" data-query-id="favoris"
+        hx-get="/favorites" hx-target="#panneau" hx-swap="innerHTML">
+  <span class="ligne-titre">
+    <span class="nom">★ Bibliographie</span>
+    <span class="compteur {{ 'vide' if not favorites_count }}">
+      {{ (favorites_count ~ ' réf.') if favorites_count else 'vide' }}
+    </span>
+  </span>
+  <span class="meta-requete">favoris · export Vancouver et BibTeX</span>
+</button>
+
 {% if not folders %}
   <p class="aide" style="padding: 0 17px;">Aucune requête enregistrée.</p>
 {% endif %}

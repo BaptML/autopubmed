@@ -367,6 +367,22 @@ body.redimensionne { cursor: col-resize; user-select: none; }
   word-break: break-word;
 }
 
+/* Bibliographie : du texte à copier tel quel, d'où le retour à la ligne
+   conservé mais l'enroulement autorisé. */
+.biblio {
+  margin-top: var(--space-2);
+  max-height: 280px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--ink-70);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.bouton.desactive { pointer-events: none; opacity: 0.45; }
+.lien-biblio { border-bottom: 1px solid var(--color-divider); }
+
 .corps-liste {
   display: flex;
   align-items: flex-start;

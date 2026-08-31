@@ -17,11 +17,11 @@ from urllib.parse import quote_plus
 
 import httpx
 from fastapi import Depends, FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import repo
+from app import citation, repo
 from app.config import PROJECT_ROOT
 from app.db import connect, init_db
 from app.pubmed import PubMedClient
@@ -462,6 +462,57 @@ async def toggle_favorite(
         request,
         "_row_and_sidebar.html",
         {"article": article, **_sidebar_context(conn)},
+    )
+
+
+async def _fill_missing_citations(conn: sqlite3.Connection) -> None:
+    """Complète en un seul lot les favoris sans métadonnées de citation.
+
+    Ne concerne que les articles entrés en base avant l'arrivée des colonnes :
+    la bibliographie serait sinon amputée de leurs auteurs. Un échec réseau
+    reste silencieux — la bibliographie s'affiche avec ce qu'on a.
+    """
+    manquants = repo.favorites_missing_citation(conn)
+    if not manquants:
+        return
+    try:
+        async with PubMedClient() as pubmed:
+            fetched = await pubmed.esummary(manquants)
+    except httpx.HTTPError as exc:
+        logging.getLogger(__name__).warning(
+            "Métadonnées de citation indisponibles pour %d favoris : %s",
+            len(manquants),
+            exc,
+        )
+        return
+    for summary in fetched:
+        repo.upsert_article(conn, summary)
+    conn.commit()
+
+
+@app.get("/favorites", response_class=HTMLResponse)
+async def favorites(
+    request: Request, conn: sqlite3.Connection = Depends(get_db)
+) -> HTMLResponse:
+    """La bibliographie : tous les favoris, avec leur rendu Vancouver."""
+    await _fill_missing_citations(conn)
+    articles = repo.list_favorite_articles(conn, new_since=_new_since(request, conn))
+    return templates.TemplateResponse(
+        request,
+        "_favorites.html",
+        {"articles": articles, "bibliography": citation.to_bibliography(articles)},
+    )
+
+
+@app.get("/favorites/export.bib")
+async def export_bibtex(conn: sqlite3.Connection = Depends(get_db)) -> Response:
+    """Fichier BibTeX des favoris, prêt pour Zotero, Mendeley ou LaTeX."""
+    await _fill_missing_citations(conn)
+    contenu = citation.to_bibtex(repo.list_favorite_articles(conn))
+    return Response(
+        contenu,
+        media_type="application/x-bibtex; charset=utf-8",
+        headers={"Content-Disposition": 'attachment; filename="favoris.bib"'},
     )
 
 

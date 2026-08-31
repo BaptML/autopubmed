@@ -1,0 +1,65 @@
+{# La bibliographie : tous les favoris, toutes requêtes confondues. Même
+   structure que la liste d'une requête, pour que l'encart de lecture et les
+   lignes d'article se comportent à l'identique. #}
+<div class="entete-liste">
+  <div class="rang">
+    <div class="titre-bloc">
+      <div class="surtitre">Favoris · toutes requêtes confondues</div>
+      <h1>Bibliographie</h1>
+    </div>
+
+    <div class="compteurs">
+      <div class="compteur-bloc">
+        <span class="etiquette">Références</span>
+        <span class="valeur">{{ articles|length }}</span>
+      </div>
+      <div class="barre-actions compacte">
+        <button class="bouton" type="button" data-copier="#biblio-texte"
+                {% if not articles %}disabled{% endif %}>
+          Copier la bibliographie
+        </button>
+        {# Téléchargement direct : hors HTMX, c'est un fichier, pas un fragment. #}
+        <a class="bouton{{ ' desactive' if not articles }}"
+           href="/favorites/export.bib">Télécharger le BibTeX ↓</a>
+      </div>
+    </div>
+  </div>
+
+  {% if articles %}
+    <details class="replier-chaine" open>
+      <summary>Bibliographie au style Vancouver</summary>
+      <pre class="biblio" id="biblio-texte">{{ bibliography }}</pre>
+      <div class="note-pied" style="margin-top: 6.8px;">
+        Les auteurs, le volume et la pagination viennent d'ESummary, récupérés
+        au moment de la mise en favori.
+      </div>
+    </details>
+  {% endif %}
+</div>
+
+<div class="corps-liste">
+  <div class="colonne-articles">
+    <div class="barre-liste">
+      <span class="mono etiquette-liste">Favoris</span>
+    </div>
+
+    {% if not articles %}
+      <p class="vide-message">
+        Aucun favori pour l'instant.<br>
+        Étoile un article depuis une requête pour le retrouver ici.
+      </p>
+    {% endif %}
+
+    {% for article in articles %}
+      {% include "_article_row.html" %}
+    {% endfor %}
+  </div>
+
+  <div class="poignee poignee-encart" data-cible="--panel-width"
+       role="separator" aria-orientation="vertical" tabindex="0"
+       title="Glisser pour redimensionner · double-clic pour réinitialiser"></div>
+
+  <aside class="colonne-encart" id="encart">
+    <p class="encart-vide">Sélectionne un article pour lire son résumé.</p>
+  </aside>
+</div>
