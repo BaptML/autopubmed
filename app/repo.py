@@ -395,32 +395,53 @@ def count_favorites(conn: sqlite3.Connection) -> int:
     return conn.execute("SELECT COUNT(*) AS n FROM favorites").fetchone()["n"]
 
 
-def list_favorite_articles(
-    conn: sqlite3.Connection, new_since: str | None = None
-) -> list[dict]:
-    """Favoris, du plus récemment étoilé au plus ancien.
+def _grouped_article_select(where: str, order_by: str, join: str = "") -> str:
+    """Lecture d'articles hors du contexte d'une requête : un article, une ligne.
 
-    `LEFT JOIN` volontaire : un favori dont la requête d'origine a été
-    supprimée doit rester dans la bibliographie, même sans `query_id`. Un
-    article présent dans plusieurs requêtes n'apparaît qu'une fois, rattaché
-    à la première d'entre elles.
+    `read`, `first_seen` et `query_id` sont agrégés sur toutes les requêtes qui
+    contiennent l'article ; le `LEFT JOIN` laisse passer celui qui n'appartient
+    plus à aucune — sans lui, un favori disparaîtrait de la bibliographie dès
+    qu'on supprime la requête qui l'avait ramené.
     """
-    rows = conn.execute(
-        f"""
+    return f"""
         SELECT {_ARTICLE_COLUMNS},
                COALESCE(MAX(qa.read), 0) AS read,
                MIN(qa.first_seen) AS first_seen,
                MIN(qa.query_id) AS query_id,
                (? IS NOT NULL AND MIN(qa.first_seen) > ?) AS is_new
-        FROM favorites fav
-        JOIN articles a ON a.pmid = fav.pmid
+        FROM articles a
+        {join}
         LEFT JOIN query_articles qa ON qa.pmid = a.pmid
+        WHERE {where}
         GROUP BY a.pmid
-        ORDER BY fav.added_at DESC, a.pmid DESC
-        """,
+        ORDER BY {order_by}
+    """
+
+
+def list_favorite_articles(
+    conn: sqlite3.Connection, new_since: str | None = None
+) -> list[dict]:
+    """Favoris, du plus récemment étoilé au plus ancien."""
+    rows = conn.execute(
+        _grouped_article_select(
+            where="1 = 1",
+            order_by="fav.added_at DESC, a.pmid DESC",
+            join="JOIN favorites fav ON fav.pmid = a.pmid",
+        ),
         (new_since, new_since),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def get_article_row_anywhere(
+    conn: sqlite3.Connection, pmid: str, new_since: str | None = None
+) -> dict | None:
+    """Ligne d'un article vue depuis la bibliographie, sans requête courante."""
+    row = conn.execute(
+        _grouped_article_select(where="a.pmid = ?", order_by="a.pmid"),
+        (new_since, new_since, pmid),
+    ).fetchone()
+    return dict(row) if row else None
 
 
 def favorites_missing_citation(conn: sqlite3.Connection) -> list[str]:

@@ -48,6 +48,12 @@
             hx-target="#encart" hx-swap="innerHTML">
       {{ "Marquer comme non lu" if article.read else "Marquer comme lu" }}
     </button>
+    <button class="bouton lien-favori{{ ' actif' if article.is_favorite }}"
+            hx-post="/articles/{{ article.pmid }}/favorite"
+            hx-vals='{"favorite": {{ 0 if article.is_favorite else 1 }}, "query_id": {{ article.query_id }}, "from_panel": 1}'
+            hx-target="#encart" hx-swap="innerHTML">
+      {{ "★ Retirer des favoris" if article.is_favorite else "☆ Ajouter aux favoris" }}
+    </button>
     <a class="bouton" href="{{ article.url }}" target="_blank" rel="noopener">
       Voir sur PubMed ↗
     </a>

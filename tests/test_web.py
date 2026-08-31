@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 
@@ -113,6 +114,62 @@ def test_article_sans_doi_n_affiche_pas_de_lien(client: TestClient) -> None:
         conn.execute("UPDATE articles SET doi = '' WHERE pmid = '40000001'")
     liste = client.get(f"/queries/{client.query_id}/articles")
     assert "doi.org" not in liste.text
+
+
+def test_etoiler_depuis_la_liste(client: TestClient) -> None:
+    reponse = client.post(
+        "/articles/40000001/favorite",
+        data={"favorite": 1, "query_id": client.query_id},
+    )
+    assert reponse.status_code == 200
+    assert "★ favori" in reponse.text
+
+    with get_conn(client.db_path) as conn:
+        assert repo.count_favorites(conn) == 1
+
+    # Le retrait rend l'étoile creuse et vide la bibliographie.
+    retrait = client.post(
+        "/articles/40000001/favorite",
+        data={"favorite": 0, "query_id": client.query_id},
+    )
+    assert "☆ favori" in retrait.text
+    with get_conn(client.db_path) as conn:
+        assert repo.count_favorites(conn) == 0
+
+
+def test_etoiler_depuis_l_encart_de_lecture(client: TestClient) -> None:
+    reponse = client.post(
+        "/articles/40000001/favorite",
+        data={"favorite": 1, "query_id": client.query_id, "from_panel": 1},
+    )
+    assert reponse.status_code == 200
+    assert "★ Retirer des favoris" in reponse.text
+
+
+def test_etoiler_un_article_inconnu_renvoie_404(client: TestClient) -> None:
+    reponse = client.post(
+        "/articles/99999999/favorite",
+        data={"favorite": 1, "query_id": client.query_id},
+    )
+    assert reponse.status_code == 404
+
+
+def test_filtre_favoris_seulement_sur_une_requete(client: TestClient) -> None:
+    tout = client.get(f"/queries/{client.query_id}/articles")
+    assert "Semaglutide in Heart Failure" in tout.text
+
+    filtre = client.get(f"/queries/{client.query_id}/articles?favorites=1")
+    assert "Semaglutide in Heart Failure" not in filtre.text
+    assert "Aucun favori dans cette requête" in filtre.text
+
+    client.post(
+        "/articles/40000001/favorite",
+        data={"favorite": 1, "query_id": client.query_id},
+    )
+    filtre = client.get(f"/queries/{client.query_id}/articles?favorites=1")
+    assert "Semaglutide in Heart Failure" in filtre.text
+    # Le filtre est reconduit par les actions de la barre, sinon il se perdrait.
+    assert '"favorites": 1' in filtre.text
 
 
 def test_liste_vide_explique_comment_la_remplir(client: TestClient) -> None:
@@ -331,15 +388,71 @@ def test_resolveur_ignore_les_termes_trop_courts(client: TestClient) -> None:
     assert "<li>" not in response.text
 
 
+def test_l_etoile_complete_les_metadonnees_de_citation(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Les articles d'avant la migration (authors NULL) sont completes au clic."""
+    with get_conn(client.db_path) as conn:
+        conn.execute("UPDATE articles SET authors = NULL WHERE pmid = '40000001'")
+    complet = ArticleSummary(
+        pmid="40000001",
+        title="Semaglutide in Heart Failure",
+        journal="N Engl J Med",
+        issn="00284793",
+        eissn=None,
+        pub_date="2026-08-13",
+        authors="Kosiborod MN; Abildstrom SZ",
+        journal_full="The New England journal of medicine",
+        volume="390",
+        issue="2",
+        pages="128-139",
+    )
+    fake = FakePubMedClient(summaries=[complet])
+    monkeypatch.setattr("app.main.PubMedClient", lambda: fake)
+
+    reponse = client.post(
+        "/articles/40000001/favorite",
+        data={"favorite": 1, "query_id": client.query_id},
+    )
+    assert reponse.status_code == 200
+    assert fake.esummary_calls == [["40000001"]]
+    with get_conn(client.db_path) as conn:
+        assert repo.get_article_summary(conn, "40000001").volume == "390"
+
+
+def test_l_etoile_tient_meme_si_pubmed_est_injoignable(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Le favori vient d'etre pose : une panne reseau ne doit pas l'annuler."""
+    with get_conn(client.db_path) as conn:
+        conn.execute("UPDATE articles SET authors = NULL WHERE pmid = '40000001'")
+    monkeypatch.setattr(
+        "app.main.PubMedClient", lambda: FakePubMedClient(en_panne=True)
+    )
+
+    reponse = client.post(
+        "/articles/40000001/favorite",
+        data={"favorite": 1, "query_id": client.query_id},
+    )
+    assert reponse.status_code == 200
+    with get_conn(client.db_path) as conn:
+        assert repo.count_favorites(conn) == 1
+
+
 class FakePubMedClient:
     """Simule PubMedClient pour les routes qui appellent PubMed."""
 
     def __init__(
         self, abstract: str | None = "OBJECTIF : Évaluer le sémaglutide.\n\n"
         "RÉSULTATS : Amélioration nette.",
+        summaries: list | None = None,
+        en_panne: bool = False,
     ) -> None:
         self._abstract = abstract
+        self._summaries = summaries or []
+        self._en_panne = en_panne
         self.efetch_calls = 0
+        self.esummary_calls: list[list[str]] = []
 
     async def __aenter__(self):
         return self
@@ -350,6 +463,12 @@ class FakePubMedClient:
     async def efetch_abstract(self, pmid: str) -> str | None:
         self.efetch_calls += 1
         return self._abstract
+
+    async def esummary(self, pmids: list[str]):
+        self.esummary_calls.append(pmids)
+        if self._en_panne:
+            raise httpx.ConnectError("reseau injoignable")
+        return [resume for resume in self._summaries if resume.pmid in pmids]
 
     async def esearch(self, term, *, reldate_days=None, retmax=None):
         from app.models import ESearchResult

@@ -1,18 +1,25 @@
 {% import "_macros.html" as macros %}
 
-{# Une ligne d'article. Rendue seule après un changement d'état de lecture,
-   d'où l'identifiant stable et le remplacement par outerHTML ; rendue hors
-   bande (oob) quand la réponse principale est l'encart de lecture.
+{# Une ligne d'article. Rendue seule après un changement d'état (lecture ou
+   favori), d'où l'identifiant stable et le remplacement par outerHTML ;
+   rendue hors bande (oob) quand la réponse principale est l'encart de lecture.
 
    Cliquer la ligne l'ouvre dans l'encart, ce qui la marque lue. Le titre
-   n'est donc pas un lien : « Voir sur PubMed » vit dans l'encart. #}
+   n'est donc pas un lien : « Voir sur PubMed » vit dans l'encart.
+
+   `query_id` peut manquer dans la bibliographie : un favori dont la requête
+   d'origine a été supprimée n'a plus de contexte de lecture. La ligne reste
+   alors affichée, mais sans ouverture ni marquage. #}
+{% set ligne_id = "article-" ~ (article.query_id if article.query_id else "biblio") ~ "-" ~ article.pmid %}
 <article class="article{{ ' non-lu' if not article.read }}"
-         id="article-{{ article.query_id }}-{{ article.pmid }}"
+         id="{{ ligne_id }}"
          {% if oob %}hx-swap-oob="true"{% endif %}
+         {% if article.query_id %}
          role="button" tabindex="0"
          hx-get="/articles/{{ article.pmid }}/panel?query_id={{ article.query_id }}"
          hx-trigger="click, keyup[key=='Enter']"
-         hx-target="#encart" hx-swap="innerHTML">
+         hx-target="#encart" hx-swap="innerHTML"
+         {% endif %}>
   <div class="ligne-meta">
     {% if article.is_new %}
       <span class="badge nouveau" title="Apparu depuis la dernière ouverture de l'application">nouveau</span>
@@ -29,16 +36,27 @@
          onclick="event.stopPropagation()"
          title="Ouvrir l'article original chez l'éditeur">DOI ↗</a>
     {% endif %}
-    {# « consume » arrête la propagation : basculer l'état de lecture ne doit
-       pas ouvrir l'article dans l'encart. #}
-    <button class="bouton mono lien-lecture"
-            hx-post="/articles/{{ article.pmid }}/read"
-            hx-vals='{"query_id": {{ article.query_id }}, "read": {{ 0 if article.read else 1 }}}'
+    {# « consume » arrête la propagation : basculer un état ne doit pas ouvrir
+       l'article dans l'encart. #}
+    <button class="bouton mono lien-favori{{ ' actif' if article.is_favorite }}"
+            hx-post="/articles/{{ article.pmid }}/favorite"
+            hx-vals='{"favorite": {{ 0 if article.is_favorite else 1 }}{% if article.query_id %}, "query_id": {{ article.query_id }}{% endif %}}'
             hx-trigger="click consume"
-            hx-target="#article-{{ article.query_id }}-{{ article.pmid }}"
-            hx-swap="outerHTML">
-      {{ "lu" if article.read else "marquer lu" }}
+            hx-target="#{{ ligne_id }}"
+            hx-swap="outerHTML"
+            title="{{ 'Retirer de la bibliographie' if article.is_favorite else 'Ajouter à la bibliographie' }}">
+      {{ "★ favori" if article.is_favorite else "☆ favori" }}
     </button>
+    {% if article.query_id %}
+      <button class="bouton mono lien-lecture"
+              hx-post="/articles/{{ article.pmid }}/read"
+              hx-vals='{"query_id": {{ article.query_id }}, "read": {{ 0 if article.read else 1 }}}'
+              hx-trigger="click consume"
+              hx-target="#{{ ligne_id }}"
+              hx-swap="outerHTML">
+        {{ "lu" if article.read else "marquer lu" }}
+      </button>
+    {% endif %}
   </div>
 
   <h3>{{ article.title }}</h3>

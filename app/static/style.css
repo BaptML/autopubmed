@@ -426,7 +426,12 @@ body.redimensionne { cursor: col-resize; user-select: none; }
 }
 .ligne-meta .revue { color: var(--ink-55); }
 .ligne-meta .date, .ligne-meta .pmid { color: var(--ink-45); }
-.lien-lecture { margin-left: auto; }
+/* Les commandes de ligne sont groupées à droite ; l'étoile est toujours là,
+   c'est donc elle qui pousse le groupe. */
+.lien-favori { margin-left: auto; }
+.lien-lecture { margin-left: var(--space-2); }
+.lien-favori.actif,
+.bascule-favoris.actif { color: var(--color-accent-700); border-color: currentColor; }
 .ligne-meta .lien-doi { color: var(--ink-45); text-decoration: underline; }
 .ligne-meta .lien-doi:hover { color: var(--color-accent-700); }
 

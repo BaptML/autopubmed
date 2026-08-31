@@ -23,6 +23,7 @@
       </div>
       <div class="barre-actions compacte">
         <button class="bouton" hx-post="/queries/{{ query.id }}/refresh"
+                hx-vals='{"favorites": {{ 1 if favorites_only else 0 }}}'
                 hx-target="#panneau" hx-swap="innerHTML"
                 hx-indicator="#indicateur-refresh"
                 hx-disabled-elt="this">Rafraîchir</button>
@@ -68,9 +69,17 @@
       <span class="mono etiquette-liste">Articles</span>
       {# Toujours rendu, désactivé quand il n'y a rien à marquer : une commande
          qui disparaît est une commande qu'on ne retrouve pas. #}
+      {# Bascule du filtre : le lien pointe vers l'état inverse de l'actuel. #}
+      <button class="bouton mono bascule-favoris{{ ' actif' if favorites_only }}"
+              hx-get="/queries/{{ query.id }}/articles{{ '' if favorites_only else '?favorites=1' }}"
+              hx-target="#panneau" hx-swap="innerHTML"
+              title="N'afficher que les articles de la bibliographie">
+        {{ "★ favoris seulement" if favorites_only else "☆ favoris seulement" }}
+      </button>
       <button class="bouton mono accent tout-lu"
               {% if not unread %}disabled title="Tous les articles de cette requête sont déjà lus"{% endif %}
               hx-post="/queries/{{ query.id }}/read-all"
+              hx-vals='{"favorites": {{ 1 if favorites_only else 0 }}}'
               hx-target="#panneau" hx-swap="innerHTML"
               hx-confirm="Marquer les {{ unread }} article{{ 's' if unread > 1 }} non lu{{ 's' if unread > 1 }} de cette requête comme lus ?">
         Tout marquer comme lu
@@ -78,10 +87,17 @@
     </div>
 
     {% if not articles %}
-      <p class="vide-message">
-        Aucun article en cache pour cette requête.<br>
-        Lance <code>uv run python -m app.refresh --id {{ query.id }}</code> pour la remplir.
-      </p>
+      {% if favorites_only %}
+        <p class="vide-message">
+          Aucun favori dans cette requête.<br>
+          Étoile un article pour le retrouver dans ta bibliographie.
+        </p>
+      {% else %}
+        <p class="vide-message">
+          Aucun article en cache pour cette requête.<br>
+          Lance <code>uv run python -m app.refresh --id {{ query.id }}</code> pour la remplir.
+        </p>
+      {% endif %}
     {% endif %}
 
     {% for article in articles %}

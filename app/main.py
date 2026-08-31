@@ -133,8 +133,20 @@ def _new_since(request: Request, conn: sqlite3.Connection) -> str | None:
     return state.new_since
 
 
+def _sidebar_context(conn: sqlite3.Connection) -> dict[str, Any]:
+    """Ce dont `_sidebar.html` a besoin, où qu'il soit inclus."""
+    return {
+        "folders": repo.folders_with_queries(conn),
+        "favorites_count": repo.count_favorites(conn),
+    }
+
+
 def _panel_and_sidebar(
-    request: Request, conn: sqlite3.Connection, query_id: int, report: Any = None
+    request: Request,
+    conn: sqlite3.Connection,
+    query_id: int,
+    report: Any = None,
+    favorites_only: bool = False,
 ) -> HTMLResponse:
     """Renvoie la liste d'articles et la barre latérale mise à jour."""
     query = repo.get_query(conn, query_id)
@@ -151,9 +163,11 @@ def _panel_and_sidebar(
                 query.sort,
                 new_since=_new_since(request, conn),
                 max_age_years=query.max_age_years,
+                favorites_only=favorites_only,
             ),
-            "folders": repo.folders_with_queries(conn),
+            "favorites_only": favorites_only,
             "report": report,
+            **_sidebar_context(conn),
         },
     )
 
@@ -173,7 +187,7 @@ def sidebar(
 ) -> HTMLResponse:
     """Fragment de la barre latérale : dossiers, requêtes, compteurs de non-lus."""
     return templates.TemplateResponse(
-        request, "_sidebar.html", {"folders": repo.folders_with_queries(conn)}
+        request, "_sidebar.html", _sidebar_context(conn)
     )
 
 
@@ -190,7 +204,10 @@ def new_query_form(
 
 @app.get("/queries/{query_id}/articles", response_class=HTMLResponse)
 def query_articles(
-    request: Request, query_id: int, conn: sqlite3.Connection = Depends(get_db)
+    request: Request,
+    query_id: int,
+    favorites: int = 0,
+    conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
     """Fragment de liste d'articles, lu depuis le cache."""
     query = repo.get_query(conn, query_id)
@@ -207,7 +224,9 @@ def query_articles(
                 query.sort,
                 new_since=_new_since(request, conn),
                 max_age_years=query.max_age_years,
+                favorites_only=bool(favorites),
             ),
+            "favorites_only": bool(favorites),
             "report": None,
         },
     )
@@ -292,13 +311,16 @@ def remove_query(
     repo.delete_query(conn, query_id)
     conn.commit()
     return templates.TemplateResponse(
-        request, "_deleted.html", {"folders": repo.folders_with_queries(conn)}
+        request, "_deleted.html", _sidebar_context(conn)
     )
 
 
 @app.post("/queries/{query_id}/refresh", response_class=HTMLResponse)
 async def refresh(
-    request: Request, query_id: int, conn: sqlite3.Connection = Depends(get_db)
+    request: Request,
+    query_id: int,
+    favorites: int = Form(0),
+    conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
     """Rafraîchissement à chaud, à la demande explicite de l'utilisateur."""
     query = repo.get_query(conn, query_id)
@@ -307,17 +329,24 @@ async def refresh(
     async with PubMedClient() as pubmed:
         report = await refresh_query(conn, query, pubmed=pubmed)
     conn.commit()
-    return _panel_and_sidebar(request, conn, query_id, report=report)
+    return _panel_and_sidebar(
+        request, conn, query_id, report=report, favorites_only=bool(favorites)
+    )
 
 
 @app.post("/queries/{query_id}/read-all", response_class=HTMLResponse)
 def mark_all_read(
-    request: Request, query_id: int, conn: sqlite3.Connection = Depends(get_db)
+    request: Request,
+    query_id: int,
+    favorites: int = Form(0),
+    conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
     """Marque lus tous les articles de la requête courante, et d'elle seule."""
     repo.mark_all_read(conn, query_id)
     conn.commit()
-    return _panel_and_sidebar(request, conn, query_id)
+    return _panel_and_sidebar(
+        request, conn, query_id, favorites_only=bool(favorites)
+    )
 
 
 def _panel_row_sidebar(
@@ -341,7 +370,7 @@ def _panel_row_sidebar(
             "article": article,
             "abstract": abstract,
             "error": error,
-            "folders": repo.folders_with_queries(conn),
+            **_sidebar_context(conn),
         },
     )
 
@@ -370,7 +399,69 @@ def toggle_read(
     return templates.TemplateResponse(
         request,
         "_row_and_sidebar.html",
-        {"article": article, "folders": repo.folders_with_queries(conn)},
+        {"article": article, **_sidebar_context(conn)},
+    )
+
+
+async def _load_citation(conn: sqlite3.Connection, pmid: str) -> None:
+    """Complète les métadonnées de citation d'un article, si elles manquent.
+
+    Même modèle que le résumé : un geste explicite de l'utilisateur déclenche
+    l'appel, le résultat est mis en cache. `authors` non nul (chaîne vide
+    comprise) signifie « déjà interrogé » : on ne rappelle pas PubMed.
+
+    L'échec réseau n'est pas remonté : le favori vient d'être posé et doit le
+    rester ; l'export rattrapera les métadonnées manquantes.
+    """
+    summary = repo.get_article_summary(conn, pmid)
+    if summary is None or summary.authors is not None:
+        return
+    try:
+        async with PubMedClient() as pubmed:
+            fetched = await pubmed.esummary([pmid])
+    except httpx.HTTPError as exc:
+        logging.getLogger(__name__).warning(
+            "Métadonnées de citation indisponibles pour %s : %s", pmid, exc
+        )
+        return
+    for summary in fetched:
+        repo.upsert_article(conn, summary)
+    conn.commit()
+
+
+@app.post("/articles/{pmid}/favorite", response_class=HTMLResponse)
+async def toggle_favorite(
+    request: Request,
+    pmid: str,
+    favorite: int = Form(...),
+    query_id: int | None = Form(None),
+    from_panel: int = Form(0),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> HTMLResponse:
+    """Ajoute ou retire l'article de la bibliographie. Global à l'article."""
+    if repo.get_article_summary(conn, pmid) is None:
+        raise HTTPException(status_code=404, detail="Article introuvable")
+    repo.set_favorite(conn, pmid, favorite=bool(favorite))
+    conn.commit()
+    if favorite:
+        await _load_citation(conn, pmid)
+
+    if from_panel and query_id:
+        return _panel_row_sidebar(
+            request, conn, query_id, pmid, repo.get_abstract(conn, pmid), None
+        )
+    new_since = _new_since(request, conn)
+    article = (
+        repo.get_article_row(conn, query_id, pmid, new_since=new_since)
+        if query_id
+        else repo.get_article_row_anywhere(conn, pmid, new_since=new_since)
+    )
+    if article is None:
+        raise HTTPException(status_code=404, detail="Article introuvable")
+    return templates.TemplateResponse(
+        request,
+        "_row_and_sidebar.html",
+        {"article": article, **_sidebar_context(conn)},
     )
 
 
