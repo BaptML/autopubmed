@@ -1,0 +1,12 @@
+services:
+  pubmed-veille:
+    build: .
+    container_name: pubmed-veille
+    restart: unless-stopped
+    ports:
+      - "8005:8000"
+    volumes:
+      - ./data:/app/data
+      - ./.env:/app/.env
+    environment:
+      - ENABLE_SCHEDULER=1 # Force l'activation du job de fond en production

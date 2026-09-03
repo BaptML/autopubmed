@@ -1,0 +1,36 @@
+# Secrets : jamais dans l'image. `.env` est monté au démarrage par compose,
+# une copie au build le figerait dans une couche, lisible par qui a l'image.
+.env
+
+# Données locales : la base et ses sauvegardes vivent dans le volume monté,
+# pas dans l'image — sans quoi chaque build embarquerait plusieurs Mo de cache
+# et repartirait d'un instantané périmé.
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Environnement et caches : reconstruits par `uv sync` dans le conteneur.
+# Motif large : le partage SMB laisse parfois des `.venv-*` fantômes,
+# indéracinables sous Windows, qui n'ont rien à faire dans l'image.
+.venv*
+__pycache__/
+.pytest_cache/
+*.py[cod]
+*.egg-info/
+
+# Inutiles à l'exécution.
+.git/
+.gitignore
+.claude/
+tests/
+docs/
+design_handoff_pubmed_daily/
+lancer.cmd
+*.md
+
+# Résidus OS.
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
