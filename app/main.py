@@ -125,6 +125,19 @@ def _sidebar_context(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+def _pagination(total: int, offset: int, url_suite: str) -> dict[str, Any]:
+    """Ce dont `_charger_la_suite.html` a besoin pour proposer la page suivante.
+
+    `offset` est celui de la page rendue ; l'URL de suite pointe la suivante.
+    """
+    prochain = offset + repo.PAGE_SIZE
+    return {
+        "total": total,
+        "reste": max(total - prochain, 0),
+        "url_suite": f"{url_suite}offset={prochain}" if prochain < total else None,
+    }
+
+
 def _panel_and_sidebar(
     request: Request,
     conn: sqlite3.Connection,
@@ -147,9 +160,19 @@ def _panel_and_sidebar(
                 query.sort,
                 max_age_years=query.max_age_years,
                 favorites_only=favorites_only,
+                limit=repo.PAGE_SIZE,
             ),
             "favorites_only": favorites_only,
             "report": report,
+            "unread": repo.count_unread(conn, query_id),
+            **_pagination(
+                repo.count_articles_for_query(
+                    conn, query_id, query.max_age_years, favorites_only
+                ),
+                offset=0,
+                url_suite=f"/queries/{query_id}/articles?"
+                + (f"favorites={int(favorites_only)}&" if favorites_only else ""),
+            ),
             **_sidebar_context(conn),
         },
     )
@@ -190,31 +213,54 @@ def query_articles(
     request: Request,
     query_id: int,
     favorites: int = 0,
+    offset: int = 0,
     conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
-    """Fragment de liste d'articles, lu depuis le cache."""
+    """Fragment de liste d'articles, lu depuis le cache.
+
+    Au-delà de la première page, seules les lignes sont rendues : elles se
+    greffent à la suite des précédentes.
+    """
     query = repo.get_query(conn, query_id)
     if query is None:
         raise HTTPException(status_code=404, detail="Requête introuvable")
-    # Ouvrir la requête est ce qui fait avancer le repère du badge « nouveau ».
-    # Avant la lecture : le repère décalé désigne alors la session précédente,
-    # et les articles arrivés depuis s'affichent bien comme nouveaux.
-    repo.record_visit(conn, query_id)
+    if offset == 0:
+        # Ouvrir la requête est ce qui fait avancer le repère du badge
+        # « nouveau ». Avant la lecture : le repère décalé désigne alors la
+        # session précédente, et les articles arrivés depuis sont bien signalés.
+        # Les pages suivantes ne rouvrent rien, elles poursuivent la lecture.
+        repo.record_visit(conn, query_id)
+
+    articles = repo.list_articles_for_query(
+        conn,
+        query_id,
+        query.sort,
+        max_age_years=query.max_age_years,
+        favorites_only=bool(favorites),
+        limit=repo.PAGE_SIZE,
+        offset=offset,
+    )
+    contexte = {
+        "query": query,
+        "articles": articles,
+        "favorites_only": bool(favorites),
+        "report": None,
+        "unread": repo.count_unread(conn, query_id),
+        **_pagination(
+            repo.count_articles_for_query(
+                conn, query_id, query.max_age_years, bool(favorites)
+            ),
+            offset=offset,
+            url_suite=f"/queries/{query_id}/articles?"
+            + (f"favorites={favorites}&" if favorites else ""),
+        ),
+    }
+    if offset:
+        return templates.TemplateResponse(request, "_articles_page.html", contexte)
     return templates.TemplateResponse(
         request,
         "_article_list.html",
-        {
-            "query": query,
-            "articles": repo.list_articles_for_query(
-                conn,
-                query_id,
-                query.sort,
-                max_age_years=query.max_age_years,
-                favorites_only=bool(favorites),
-            ),
-            "favorites_only": bool(favorites),
-            "report": None,
-        },
+        contexte,
     )
 
 
@@ -473,9 +519,21 @@ async def _fill_missing_citations(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def _new_context(conn: sqlite3.Connection, offset: int = 0) -> dict[str, Any]:
+    """Contexte du flux, partagé par l'affichage, la purge et les pages."""
+    return {
+        "articles": repo.list_new_articles(
+            conn, limit=repo.PAGE_SIZE, offset=offset
+        ),
+        **_pagination(
+            repo.count_new_articles(conn), offset=offset, url_suite="/new?"
+        ),
+    }
+
+
 @app.get("/new", response_class=HTMLResponse)
 def new_articles(
-    request: Request, conn: sqlite3.Connection = Depends(get_db)
+    request: Request, offset: int = 0, conn: sqlite3.Connection = Depends(get_db)
 ) -> HTMLResponse:
     """Le flux : tout ce qui est arrivé depuis la dernière visite.
 
@@ -483,11 +541,8 @@ def new_articles(
     l'ouverture d'une requête et le bouton « Tout marquer comme vu » décalent
     les repères.
     """
-    return templates.TemplateResponse(
-        request,
-        "_new_list.html",
-        {"articles": repo.list_new_articles(conn)},
-    )
+    gabarit = "_new_page.html" if offset else "_new_list.html"
+    return templates.TemplateResponse(request, gabarit, _new_context(conn, offset))
 
 
 @app.post("/new/dismiss", response_class=HTMLResponse)
@@ -500,21 +555,32 @@ def dismiss_new(
     return templates.TemplateResponse(
         request,
         "_new_and_sidebar.html",
-        {"articles": repo.list_new_articles(conn), **_sidebar_context(conn)},
+        {**_new_context(conn), **_sidebar_context(conn)},
     )
 
 
 @app.get("/search", response_class=HTMLResponse)
 def search(
-    request: Request, q: str = "", conn: sqlite3.Connection = Depends(get_db)
+    request: Request,
+    q: str = "",
+    offset: int = 0,
+    conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
     """Recherche dans le cache local. Aucun appel réseau : c'est notre base."""
     saisie = q.strip()
-    return templates.TemplateResponse(
-        request,
-        "_search_results.html",
-        {"saisie": saisie, "articles": repo.search_articles(conn, saisie)},
-    )
+    contexte = {
+        "saisie": saisie,
+        "articles": repo.search_articles(
+            conn, saisie, limit=repo.PAGE_SIZE, offset=offset
+        ),
+        **_pagination(
+            repo.count_search_results(conn, saisie),
+            offset=offset,
+            url_suite=f"/search?q={quote_plus(saisie)}&",
+        ),
+    }
+    gabarit = "_search_page.html" if offset else "_search_results.html"
+    return templates.TemplateResponse(request, gabarit, contexte)
 
 
 @app.get("/favorites", response_class=HTMLResponse)

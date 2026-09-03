@@ -1,0 +1,5 @@
+{# Page suivante des résultats de recherche : les lignes seules. #}
+{% for article in articles %}
+  {% include "_article_row.html" %}
+{% endfor %}
+{% include "_charger_la_suite.html" %}

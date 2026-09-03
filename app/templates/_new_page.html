@@ -1,0 +1,6 @@
+{# Page suivante du flux : les lignes seules, chacune précédée de sa provenance. #}
+{% for article in articles %}
+  <div class="provenance mono">{{ article.query_folder }} · {{ article.query_name }}</div>
+  {% include "_article_row.html" %}
+{% endfor %}
+{% include "_charger_la_suite.html" %}

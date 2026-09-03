@@ -1,4 +1,5 @@
-{% set unread = articles | rejectattr("read") | list | length %}
+{# `unread` et `total` viennent de la base et non de la page affichée : la liste
+   se charge par tranches, les compter ici ne dirait que la première. #}
 
 <div class="entete-liste">
   <div class="rang">
@@ -15,7 +16,7 @@
     <div class="compteurs">
       <div class="compteur-bloc">
         <span class="etiquette">Retenus</span>
-        <span class="valeur">{{ articles|length }}</span>
+        <span class="valeur">{{ total }}</span>
       </div>
       <div class="compteur-bloc non-lus">
         <span class="etiquette">Non lus</span>
@@ -103,10 +104,11 @@
     {% for article in articles %}
       {% include "_article_row.html" %}
     {% endfor %}
+    {% include "_charger_la_suite.html" %}
 
     {% if articles %}
       <p class="note-pied">
-        {{ "{:,}".format(articles|length).replace(",", " ") }} article{{ 's' if articles|length > 1 }} indexé{{ 's' if articles|length > 1 }} pour cette requête
+        {{ "{:,}".format(total).replace(",", " ") }} article{{ 's' if total > 1 }} indexé{{ 's' if total > 1 }} pour cette requête
       </p>
     {% endif %}
   </div>

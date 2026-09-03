@@ -1,0 +1,12 @@
+{# Bouton de page suivante, commun aux trois listes. Il se remplace lui-même
+   par les lignes suivantes — lesquelles portent à leur tour leur propre bouton
+   tant qu'il reste à charger. #}
+{% if url_suite %}
+  <button class="bouton mono charger-suite"
+          hx-get="{{ url_suite }}"
+          hx-target="this" hx-swap="outerHTML"
+          hx-indicator="this"
+          hx-disabled-elt="this">
+    Charger la suite — {{ reste }} article{{ 's' if reste > 1 }} restant{{ 's' if reste > 1 }}
+  </button>
+{% endif %}

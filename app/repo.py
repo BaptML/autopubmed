@@ -329,7 +329,19 @@ _NEW_CLAUSE = """(q.previous_visit_at IS NOT NULL
                   AND qa.first_seen > q.previous_visit_at)"""
 
 
-def _article_select(where: str, order_by: str, extra: str = "") -> str:
+# Taille d'une page de liste. Une requête large ramène des centaines
+# d'articles : les rendre d'un bloc alourdit la page sans servir la lecture.
+PAGE_SIZE = 50
+
+
+def _limite(limit: int | None, offset: int) -> str:
+    """Clause LIMIT/OFFSET. Les valeurs sont des entiers, jamais du texte reçu."""
+    if limit is None:
+        return ""
+    return f"LIMIT {int(limit)} OFFSET {int(offset)}"
+
+
+def _article_select(where: str, order_by: str, extra: str = "", pagination: str = "") -> str:
     """Fabrique la requête de lecture d'articles, seule forme utilisée par l'UI.
 
     `is_new` compare `first_seen` au repère de visite de la requête, lu par
@@ -346,6 +358,7 @@ def _article_select(where: str, order_by: str, extra: str = "") -> str:
         JOIN queries q ON q.id = qa.query_id
         WHERE {where}
         ORDER BY {order_by}
+        {pagination}
     """
 
 
@@ -365,18 +378,46 @@ def list_articles_for_query(
     sort: str = "date_desc",
     max_age_years: int | None = None,
     favorites_only: bool = False,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[dict]:
     """Articles d'une requête, tels quels depuis le cache — aucun appel réseau."""
     order_by = _SORT_CLAUSES.get(sort, _SORT_CLAUSES["date_desc"])
     cutoff = cutoff_date(max_age_years)
-    where = f"qa.query_id = ? AND {_AGE_CLAUSE}"
-    if favorites_only:
-        where += " AND EXISTS(SELECT 1 FROM favorites f WHERE f.pmid = a.pmid)"
+    where = _where_for_query(favorites_only)
     rows = conn.execute(
-        _article_select(where, order_by),
+        _article_select(where, order_by, pagination=_limite(limit, offset)),
         (query_id, cutoff, cutoff),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def _where_for_query(favorites_only: bool) -> str:
+    """Filtre d'une liste de requête. Partagé par la lecture et le comptage."""
+    where = f"qa.query_id = ? AND {_AGE_CLAUSE}"
+    if favorites_only:
+        where += " AND EXISTS(SELECT 1 FROM favorites f WHERE f.pmid = a.pmid)"
+    return where
+
+
+def count_articles_for_query(
+    conn: sqlite3.Connection,
+    query_id: int,
+    max_age_years: int | None = None,
+    favorites_only: bool = False,
+) -> int:
+    """Total d'une liste, pour l'afficher pendant qu'elle se charge par pages."""
+    cutoff = cutoff_date(max_age_years)
+    return conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM query_articles qa
+        JOIN articles a ON a.pmid = qa.pmid
+        JOIN queries q ON q.id = qa.query_id
+        WHERE {_where_for_query(favorites_only)}
+        """,
+        (query_id, cutoff, cutoff),
+    ).fetchone()["n"]
 
 
 def get_article_row(
@@ -401,7 +442,9 @@ _FLUX_AGE_CLAUSE = (
 )
 
 
-def list_new_articles(conn: sqlite3.Connection) -> list[dict]:
+def list_new_articles(
+    conn: sqlite3.Connection, limit: int | None = None, offset: int = 0
+) -> list[dict]:
     """Tout ce qui est arrivé depuis la dernière visite, requêtes confondues.
 
     Un article présent dans deux requêtes apparaît une fois par requête : la
@@ -412,6 +455,7 @@ def list_new_articles(conn: sqlite3.Connection) -> list[dict]:
             where=f"{_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE}",
             order_by="qa.first_seen DESC, a.pub_date DESC, a.pmid DESC",
             extra=", q.name AS query_name, q.folder AS query_folder",
+            pagination=_limite(limit, offset),
         )
     ).fetchall()
     return [dict(row) for row in rows]
@@ -466,7 +510,9 @@ def to_match_expression(saisie: str) -> str:
     return " ".join(cites)
 
 
-def search_articles(conn: sqlite3.Connection, saisie: str) -> list[dict]:
+def search_articles(
+    conn: sqlite3.Connection, saisie: str, limit: int | None = None, offset: int = 0
+) -> list[dict]:
     """Articles du cache local répondant à la saisie, les plus pertinents d'abord.
 
     Cherche dans les titres, revues et auteurs — et dans les résumés déjà
@@ -489,10 +535,22 @@ def search_articles(conn: sqlite3.Connection, saisie: str) -> list[dict]:
         WHERE articles_fts MATCH ?
         GROUP BY a.pmid
         ORDER BY MIN(articles_fts.rank), a.pub_date DESC
+        {_limite(limit, offset)}
         """,
         (expression,),
     ).fetchall()
     return [dict(row) for row in rows]
+
+
+def count_search_results(conn: sqlite3.Connection, saisie: str) -> int:
+    """Total des résultats, pour dire ce qui reste à charger."""
+    expression = to_match_expression(saisie)
+    if not expression:
+        return 0
+    return conn.execute(
+        "SELECT COUNT(*) AS n FROM articles_fts WHERE articles_fts MATCH ?",
+        (expression,),
+    ).fetchone()["n"]
 
 
 # --- Favoris ---------------------------------------------------------------

@@ -14,16 +14,16 @@
     <div class="compteurs">
       <div class="compteur-bloc non-lus">
         <span class="etiquette">Nouveaux</span>
-        <span class="valeur">{{ articles|length }}</span>
+        <span class="valeur">{{ total }}</span>
       </div>
       <div class="barre-actions compacte">
         {# Toujours rendu, désactivé quand il n'y a rien : une commande qui
            disparaît est une commande qu'on ne retrouve pas. #}
         <button class="bouton mono accent"
-                {% if not articles %}disabled title="Le flux est déjà vide"{% endif %}
+                {% if not total %}disabled title="Le flux est déjà vide"{% endif %}
                 hx-post="/new/dismiss"
                 hx-target="#panneau" hx-swap="innerHTML"
-                hx-confirm="Marquer les {{ articles|length }} nouveauté{{ 's' if articles|length > 1 }} comme vues ? Elles resteront non lues.">
+                hx-confirm="Marquer les {{ total }} nouveauté{{ 's' if total > 1 }} comme vues ? Elles resteront non lues.">
           Tout marquer comme vu
         </button>
       </div>
@@ -55,6 +55,7 @@
       <div class="provenance mono">{{ article.query_folder }} · {{ article.query_name }}</div>
       {% include "_article_row.html" %}
     {% endfor %}
+    {% include "_charger_la_suite.html" %}
   </div>
 
   <div class="poignee poignee-encart" data-cible="--panel-width"

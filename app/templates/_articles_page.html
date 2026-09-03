@@ -1,0 +1,6 @@
+{# Page suivante d'une liste de requête : les lignes seules, sans en-tête ni
+   encart, qui remplacent le bouton dont elles viennent. #}
+{% for article in articles %}
+  {% include "_article_row.html" %}
+{% endfor %}
+{% include "_charger_la_suite.html" %}
