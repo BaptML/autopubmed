@@ -288,28 +288,69 @@ def test_marquage_lu_bascule_et_met_a_jour_le_compteur(client: TestClient) -> No
     assert 'class="article non-lu"' in retour.text
 
 
-def test_article_nouveau_depuis_la_derniere_ouverture(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # L'article a été vu pour la première fois après l'ouverture précédente.
-    monkeypatch.setattr(app.state, "new_since", "2020-01-01T00:00:00+00:00")
-    assert "nouveau" in client.get(f"/queries/{client.query_id}/articles").text
-
-    # Rien de nouveau si l'application a déjà été ouverte depuis.
-    monkeypatch.setattr(app.state, "new_since", "2099-01-01T00:00:00+00:00")
-    assert 'class="badge nouveau"' not in client.get(
-        f"/queries/{client.query_id}/articles"
-    ).text
-
-
-def test_premiere_ouverture_ne_signale_aucun_nouveau(client: TestClient) -> None:
-    # Au tout premier lancement il n'y a pas d'ouverture précédente : rien n'est
-    # signalé comme nouveau, et l'ouverture est enregistrée pour la prochaine fois.
-    assert 'class="badge nouveau"' not in client.get(
-        f"/queries/{client.query_id}/articles"
-    ).text
+def _remettre_a_neuf(client: TestClient) -> None:
+    """Requête ancienne et jamais ouverte : son article est donc à découvrir."""
     with get_conn(client.db_path) as conn:
-        assert repo.get_app_state(conn, repo.LAST_OPENED_KEY) is not None
+        conn.execute(
+            "UPDATE queries SET created_at = ?, last_visited_at = NULL, "
+            "previous_visit_at = NULL",
+            ("2020-01-01T00:00:00+00:00",),
+        )
+
+
+def test_le_badge_nouveau_suit_le_repere_de_visite(client: TestClient) -> None:
+    liste = f"/queries/{client.query_id}/articles"
+
+    # Repère antérieur à l'arrivée de l'article : il est signalé.
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "UPDATE queries SET last_visited_at = ?, previous_visit_at = ?",
+            ("2020-01-01T00:00:00+00:00", "2020-01-01T00:00:00+00:00"),
+        )
+    assert 'class="badge nouveau"' in client.get(liste).text
+
+    # Repère postérieur : plus rien de nouveau.
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "UPDATE queries SET last_visited_at = ?, previous_visit_at = ?",
+            ("2099-01-01T00:00:00+00:00", "2099-01-01T00:00:00+00:00"),
+        )
+    assert 'class="badge nouveau"' not in client.get(liste).text
+
+
+def test_recharger_la_liste_n_efface_pas_les_badges(client: TestClient) -> None:
+    """Le repère se décale à la session suivante, pas à chaque affichage."""
+    _remettre_a_neuf(client)
+    liste = f"/queries/{client.query_id}/articles"
+    assert 'class="badge nouveau"' in client.get(liste).text
+    assert 'class="badge nouveau"' in client.get(liste).text
+
+
+def test_premiere_ouverture_cale_le_repere_sur_la_creation(client: TestClient) -> None:
+    _remettre_a_neuf(client)
+    client.get(f"/queries/{client.query_id}/articles")
+    with get_conn(client.db_path) as conn:
+        row = conn.execute(
+            "SELECT created_at, last_visited_at, previous_visit_at "
+            "FROM queries WHERE id = ?",
+            (client.query_id,),
+        ).fetchone()
+    assert row["previous_visit_at"] == row["created_at"]
+    assert row["last_visited_at"] is not None
+
+
+def test_le_repere_survit_au_redemarrage(client: TestClient) -> None:
+    """Il vit en base et non en mémoire.
+
+    C'est ce qui corrige le défaut d'origine : sous `restart: unless-stopped`,
+    le serveur ne redémarrait jamais et le signalement restait figé.
+    """
+    _remettre_a_neuf(client)
+    liste = f"/queries/{client.query_id}/articles"
+    assert 'class="badge nouveau"' in client.get(liste).text
+
+    with TestClient(app) as apres_redemarrage:  # remonte l'application
+        assert 'class="badge nouveau"' in apres_redemarrage.get(liste).text
 
 
 def test_resume_efetch_a_la_demande_puis_cache(

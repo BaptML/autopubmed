@@ -88,3 +88,7 @@ class SavedQuery:
     sort: str
     created_at: str
     last_refreshed_at: str | None
+    # Dernière ouverture de la requête, et repère du badge « nouveau » : un
+    # article l'est si son `first_seen` est postérieur à `previous_visit_at`.
+    last_visited_at: str | None = None
+    previous_visit_at: str | None = None

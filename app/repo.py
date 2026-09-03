@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 
+from app.config import settings
 from app.db import utcnow_iso
 from app.models import ArticleSummary, JournalQuality, SavedQuery
 
 _QUERY_COLUMNS = (
     "id, name, folder, pubmed_query, quartile_min, citedness_min, "
-    "max_age_years, sort, created_at, last_refreshed_at"
+    "max_age_years, sort, created_at, last_refreshed_at, "
+    "last_visited_at, previous_visit_at"
 )
 
 
@@ -26,6 +28,8 @@ def _to_query(row: sqlite3.Row) -> SavedQuery:
         sort=row["sort"],
         created_at=row["created_at"],
         last_refreshed_at=row["last_refreshed_at"],
+        last_visited_at=row["last_visited_at"],
+        previous_visit_at=row["previous_visit_at"],
     )
 
 
@@ -321,15 +325,19 @@ _ARTICLE_COLUMNS = f"""
 def _article_select(where: str, order_by: str) -> str:
     """Fabrique la requête de lecture d'articles, seule forme utilisée par l'UI.
 
-    `is_new` compare `first_seen` à l'ouverture précédente de l'application :
-    les horodatages sont des chaînes ISO en UTC, donc comparables telles quelles.
+    `is_new` compare `first_seen` au repère de visite de la requête, lu par
+    jointure : les horodatages sont des chaînes ISO en UTC, donc comparables
+    telles quelles. Le calcul vit dans le SQL et non chez l'appelant, pour que
+    toutes les vues répondent la même chose sans avoir à se passer la frontière.
     """
     return f"""
         SELECT {_ARTICLE_COLUMNS},
                qa.read, qa.first_seen, qa.query_id,
-               (? IS NOT NULL AND qa.first_seen > ?) AS is_new
+               (q.previous_visit_at IS NOT NULL
+                AND qa.first_seen > q.previous_visit_at) AS is_new
         FROM query_articles qa
         JOIN articles a ON a.pmid = qa.pmid
+        JOIN queries q ON q.id = qa.query_id
         WHERE {where}
         ORDER BY {order_by}
     """
@@ -349,7 +357,6 @@ def list_articles_for_query(
     conn: sqlite3.Connection,
     query_id: int,
     sort: str = "date_desc",
-    new_since: str | None = None,
     max_age_years: int | None = None,
     favorites_only: bool = False,
 ) -> list[dict]:
@@ -361,18 +368,18 @@ def list_articles_for_query(
         where += " AND EXISTS(SELECT 1 FROM favorites f WHERE f.pmid = a.pmid)"
     rows = conn.execute(
         _article_select(where, order_by),
-        (new_since, new_since, query_id, cutoff, cutoff),
+        (query_id, cutoff, cutoff),
     ).fetchall()
     return [dict(row) for row in rows]
 
 
 def get_article_row(
-    conn: sqlite3.Connection, query_id: int, pmid: str, new_since: str | None = None
+    conn: sqlite3.Connection, query_id: int, pmid: str
 ) -> dict | None:
     """Une seule ligne d'article, pour la re-rendre après un changement d'état."""
     row = conn.execute(
         _article_select("qa.query_id = ? AND qa.pmid = ?", "a.pmid"),
-        (new_since, new_since, query_id, pmid),
+        (query_id, pmid),
     ).fetchone()
     return dict(row) if row else None
 
@@ -408,38 +415,35 @@ def _grouped_article_select(where: str, order_by: str, join: str = "") -> str:
                COALESCE(MAX(qa.read), 0) AS read,
                MIN(qa.first_seen) AS first_seen,
                MIN(qa.query_id) AS query_id,
-               (? IS NOT NULL AND MIN(qa.first_seen) > ?) AS is_new
+               COALESCE(MAX(q.previous_visit_at IS NOT NULL
+                            AND qa.first_seen > q.previous_visit_at), 0) AS is_new
         FROM articles a
         {join}
         LEFT JOIN query_articles qa ON qa.pmid = a.pmid
+        LEFT JOIN queries q ON q.id = qa.query_id
         WHERE {where}
         GROUP BY a.pmid
         ORDER BY {order_by}
     """
 
 
-def list_favorite_articles(
-    conn: sqlite3.Connection, new_since: str | None = None
-) -> list[dict]:
+def list_favorite_articles(conn: sqlite3.Connection) -> list[dict]:
     """Favoris, du plus récemment étoilé au plus ancien."""
     rows = conn.execute(
         _grouped_article_select(
             where="1 = 1",
             order_by="fav.added_at DESC, a.pmid DESC",
             join="JOIN favorites fav ON fav.pmid = a.pmid",
-        ),
-        (new_since, new_since),
+        )
     ).fetchall()
     return [dict(row) for row in rows]
 
 
-def get_article_row_anywhere(
-    conn: sqlite3.Connection, pmid: str, new_since: str | None = None
-) -> dict | None:
+def get_article_row_anywhere(conn: sqlite3.Connection, pmid: str) -> dict | None:
     """Ligne d'un article vue depuis la bibliographie, sans requête courante."""
     row = conn.execute(
         _grouped_article_select(where="a.pmid = ?", order_by="a.pmid"),
-        (new_since, new_since, pmid),
+        (pmid,),
     ).fetchone()
     return dict(row) if row else None
 
@@ -490,9 +494,6 @@ def count_unread(conn: sqlite3.Connection, query_id: int) -> int:
 
 # --- État de l'application ----------------------------------------------
 
-LAST_OPENED_KEY = "last_opened_at"
-
-
 def get_app_state(conn: sqlite3.Connection, key: str) -> str | None:
     row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else None
@@ -507,16 +508,54 @@ def set_app_state(conn: sqlite3.Connection, key: str, value: str) -> None:
     )
 
 
-def record_app_opening(conn: sqlite3.Connection) -> str | None:
-    """Note l'ouverture de l'application et renvoie la précédente.
+def record_visit(
+    conn: sqlite3.Connection, query_id: int, gap_minutes: int | None = None
+) -> None:
+    """Note l'ouverture d'une requête, en décalant son repère s'il y a lieu.
 
-    C'est cette date précédente qui départage les articles « nouveaux » : ceux
-    apparus pendant que l'application était fermée. Elle vaut None au tout
-    premier lancement — aucun article n'est alors signalé comme nouveau.
+    Le repère (`previous_visit_at`) ne suit pas chaque ouverture : sans quoi
+    recharger la liste effacerait les badges qu'on est en train de regarder. Il
+    ne se décale qu'après une interruption d'au moins `gap_minutes`, ce qui vaut
+    pour une nouvelle session de lecture.
+
+    À la toute première ouverture, le repère tombe sur la création de la
+    requête : tout ce que son premier rafraîchissement a ramené est nouveau.
     """
-    previous = get_app_state(conn, LAST_OPENED_KEY)
-    set_app_state(conn, LAST_OPENED_KEY, utcnow_iso())
-    return previous
+    row = conn.execute(
+        "SELECT created_at, last_visited_at FROM queries WHERE id = ?", (query_id,)
+    ).fetchone()
+    if row is None:
+        return
+
+    gap = settings.visit_session_gap_minutes if gap_minutes is None else gap_minutes
+    now = utcnow_iso()
+    last = row["last_visited_at"]
+
+    if last is None:
+        marker = row["created_at"]
+    elif _passe_le_seuil(last, gap):
+        marker = last
+    else:
+        conn.execute(
+            "UPDATE queries SET last_visited_at = ? WHERE id = ?", (now, query_id)
+        )
+        return
+
+    conn.execute(
+        "UPDATE queries SET last_visited_at = ?, previous_visit_at = ? WHERE id = ?",
+        (now, marker, query_id),
+    )
+
+
+def _passe_le_seuil(last_visited_at: str, gap_minutes: int) -> bool:
+    """Vrai si la dernière visite est assez ancienne pour ouvrir une session."""
+    try:
+        last = datetime.fromisoformat(last_visited_at)
+    except ValueError:  # horodatage illisible : on repart d'une session propre
+        return True
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - last >= timedelta(minutes=gap_minutes)
 
 
 # --- Qualité des revues --------------------------------------------------

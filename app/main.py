@@ -68,7 +68,6 @@ def date_courte(value: str | None) -> str:
     return f"{pieces[2]}/{pieces[1]}" if len(pieces) == 3 else pieces[0]
 
 
-_UNSET = object()  # frontière du « nouveau » pas encore déterminée
 
 
 @asynccontextmanager
@@ -76,10 +75,6 @@ async def lifespan(app_: FastAPI):
     # `state.db_path` détourne l'initialisation vers une base jetable : sans
     # lui, monter l'application dans un test migre la base de production.
     init_db(getattr(app_.state, "db_path", None))
-    # La frontière est fixée à la première requête servie, avec la connexion de
-    # celle-ci (voir _new_since), puis figée pour toute la session.
-    app_.state.new_since = _UNSET
-
     scheduler = create_scheduler()
     if scheduler is not None:
         scheduler.start()
@@ -121,20 +116,6 @@ def _optional_float(raw: str | None) -> float | None:
     return float(raw) if raw else None
 
 
-def _new_since(request: Request, conn: sqlite3.Connection) -> str | None:
-    """Frontière du « nouveau » : l'ouverture précédente de l'application.
-
-    Déterminée une seule fois, à la première requête servie, pour que le
-    signalement ne se déplace pas sous les yeux de l'utilisateur pendant sa
-    session. Vaut None au tout premier lancement.
-    """
-    state = request.app.state
-    if getattr(state, "new_since", _UNSET) is _UNSET:
-        state.new_since = repo.record_app_opening(conn)
-        conn.commit()
-    return state.new_since
-
-
 def _sidebar_context(conn: sqlite3.Connection) -> dict[str, Any]:
     """Ce dont `_sidebar.html` a besoin, où qu'il soit inclus."""
     return {
@@ -163,7 +144,6 @@ def _panel_and_sidebar(
                 conn,
                 query_id,
                 query.sort,
-                new_since=_new_since(request, conn),
                 max_age_years=query.max_age_years,
                 favorites_only=favorites_only,
             ),
@@ -215,6 +195,10 @@ def query_articles(
     query = repo.get_query(conn, query_id)
     if query is None:
         raise HTTPException(status_code=404, detail="Requête introuvable")
+    # Ouvrir la requête est ce qui fait avancer le repère du badge « nouveau ».
+    # Avant la lecture : le repère décalé désigne alors la session précédente,
+    # et les articles arrivés depuis s'affichent bien comme nouveaux.
+    repo.record_visit(conn, query_id)
     return templates.TemplateResponse(
         request,
         "_article_list.html",
@@ -224,7 +208,6 @@ def query_articles(
                 conn,
                 query_id,
                 query.sort,
-                new_since=_new_since(request, conn),
                 max_age_years=query.max_age_years,
                 favorites_only=bool(favorites),
             ),
@@ -360,9 +343,7 @@ def _panel_row_sidebar(
     error: str | None,
 ) -> HTMLResponse:
     """Encart de lecture, plus la ligne d'article et la barre latérale hors bande."""
-    article = repo.get_article_row(
-        conn, query_id, pmid, new_since=_new_since(request, conn)
-    )
+    article = repo.get_article_row(conn, query_id, pmid)
     if article is None:
         raise HTTPException(status_code=404, detail="Article introuvable")
     return templates.TemplateResponse(
@@ -395,7 +376,7 @@ def toggle_read(
         return _panel_row_sidebar(
             request, conn, query_id, pmid, repo.get_abstract(conn, pmid), None
         )
-    article = repo.get_article_row(conn, query_id, pmid, new_since=_new_since(request, conn))
+    article = repo.get_article_row(conn, query_id, pmid)
     if article is None:
         raise HTTPException(status_code=404, detail="Article introuvable")
     return templates.TemplateResponse(
@@ -452,11 +433,10 @@ async def toggle_favorite(
         return _panel_row_sidebar(
             request, conn, query_id, pmid, repo.get_abstract(conn, pmid), None
         )
-    new_since = _new_since(request, conn)
     article = (
-        repo.get_article_row(conn, query_id, pmid, new_since=new_since)
+        repo.get_article_row(conn, query_id, pmid)
         if query_id
-        else repo.get_article_row_anywhere(conn, pmid, new_since=new_since)
+        else repo.get_article_row_anywhere(conn, pmid)
     )
     if article is None:
         raise HTTPException(status_code=404, detail="Article introuvable")
@@ -498,7 +478,7 @@ async def favorites(
 ) -> HTMLResponse:
     """La bibliographie : tous les favoris, avec leur rendu Vancouver."""
     await _fill_missing_citations(conn)
-    articles = repo.list_favorite_articles(conn, new_since=_new_since(request, conn))
+    articles = repo.list_favorite_articles(conn)
     return templates.TemplateResponse(
         request,
         "_favorites.html",
