@@ -19,3 +19,9 @@ __pycache__/
 .idea/
 Thumbs.db
 desktop.ini
+# Résidus macOS, semés par les transferts depuis un Mac ou un NAS.
+.DS_Store
+._*
+
+# Sauvegardes de la base, prises avant chaque migration de schéma.
+backups/
