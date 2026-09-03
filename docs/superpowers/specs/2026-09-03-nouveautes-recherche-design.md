@@ -85,20 +85,35 @@ tiret ne doit jamais remonter une erreur SQLite.
 Pagination : `LIMIT/OFFSET`, 50 par page, bouton « Charger la suite » en
 `hx-swap="beforeend"`, appliqué aux trois listes — articles, flux, recherche.
 
-## Phases
+## Phases — toutes livrées
 
-| Phase | Contenu | Vérification |
+| Phase | Contenu | Commit |
 |---|---|---|
-| **A** | Hygiène : secret, résidus macOS, venv recréé | `uv run pytest` vert |
-| **B** | Migration seule : 2 colonnes + FTS5 + triggers + peuplement | `PRAGMA table_info` ; `count(articles_fts) == count(articles)` |
-| **C** | Badge « nouveau » sur la visite | tests ajustés, parcours manuel |
-| **D** | Flux « Nouveautés » | compteur cohérent avec la somme des requêtes |
-| **E** | Recherche locale | requêtes de référence A et B du spec en non-régression |
-| **F** | Pagination des trois listes | chargement incrémental sur une liste longue |
+| **A** | Hygiène : secret, résidus macOS, venv recréé | `136f9fe` |
+| **B** | Migration : 2 colonnes + FTS5 + triggers + sauvegarde | `e270a45` |
+| **C** | Badge « nouveau » ancré sur la visite | `34501bc` |
+| **D** | Flux « Nouveautés » | `4b1d26e` |
+| **E** | Recherche locale | `c3a20f7` |
+| **F** | Pagination des trois listes | `1f34309` |
 
-Un commit par phase. Le schéma est migré en phase B, séparément de la logique
-applicative, comme l'exige `CLAUDE.md`. Aucune phase ne touche au pipeline de
+Un commit par phase. Le schéma a été migré en phase B, séparément de la logique
+applicative, comme l'exige `CLAUDE.md`. Aucune phase n'a touché au pipeline de
 filtrage qualité ni à la chaîne PubMed.
+
+État final : 249 tests passent (156 au départ). Sur la base réelle — 777
+articles, 2 requêtes — toutes les routes répondent, les deux requêtes de
+référence du spec restent conformes (`quartile_min = 2` ne laisse passer que Q1
+et Q2), et la pagination ramène le flux de 374 à 92 Ko.
+
+### Écarts par rapport au design initial
+
+- Les sauvegardes vont dans `data/backups/` et non `backups/` : à côté de la
+  base, donc dans le volume monté en conteneur.
+- Le compteur du flux dit « à voir » et non « nouv. » : les requêtes emploient
+  déjà ce mot pour leurs non-lus, et voir n'est pas lire.
+- Un défaut préexistant a été corrigé en chemin : le lifespan appelait
+  `init_db()` sans argument, si bien que la suite de tests initialisait — et
+  aurait désormais migré — la base de production.
 
 ## Comment annuler
 
