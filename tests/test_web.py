@@ -57,11 +57,15 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
             conn.close()
 
     app.dependency_overrides[get_db] = override
+    # Le lifespan initialise la base : sans ce détournement, il migrerait celle
+    # de production à chaque exécution de la suite.
+    app.state.db_path = db_path
     with TestClient(app) as test_client:
         test_client.query_id = query_id  # type: ignore[attr-defined]
         test_client.db_path = db_path  # type: ignore[attr-defined]
         yield test_client
     app.dependency_overrides.clear()
+    del app.state.db_path
 
 
 def test_page_d_accueil_est_une_coquille(client: TestClient) -> None:

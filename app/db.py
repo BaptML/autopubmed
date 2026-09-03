@@ -67,29 +67,111 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("articles", "volume", "TEXT"),
     ("articles", "issue", "TEXT"),
     ("articles", "pages", "TEXT"),
+    ("queries", "last_visited_at", "TEXT"),
+    ("queries", "previous_visit_at", "TEXT"),
 )
+
+
+def _missing_columns(conn: sqlite3.Connection) -> list[tuple[str, str, str]]:
+    """Colonnes de `_ADDED_COLUMNS` absentes de la base, dans l'ordre déclaré."""
+    missing: list[tuple[str, str, str]] = []
+    for table, column, definition in _ADDED_COLUMNS:
+        if not _table_exists(conn, table):
+            continue  # base neuve : schema.sql la créera complète
+        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in existing:
+            missing.append((table, column, definition))
+    return missing
 
 
 def _add_missing_columns(conn: sqlite3.Connection) -> list[str]:
     """Ajoute les colonnes absentes. Idempotent. Renvoie celles qui ont été créées."""
     added: list[str] = []
-    for table, column, definition in _ADDED_COLUMNS:
-        existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
-        if column not in existing:
-            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-            added.append(f"{table}.{column}")
+    for table, column, definition in _missing_columns(conn):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+        added.append(f"{table}.{column}")
     return added
 
 
+def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type IN ('table','view') AND name = ?",
+        (name,),
+    ).fetchone()
+    return row is not None
+
+
+def backup_db(db_path: Path) -> Path:
+    """Copie la base dans `backups/`, horodatée, et renvoie le chemin.
+
+    Passe par l'API `backup()` de sqlite3 et non par une copie de fichier : en
+    mode WAL, le fichier `.db` seul est un instantané incomplet. Les sauvegardes
+    vivent à côté de la base, donc dans le volume monté en conteneur.
+    """
+    backup_dir = db_path.parent / "backups"
+    backup_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    destination = backup_dir / f"{db_path.stem}-{stamp}.db"
+
+    source = sqlite3.connect(db_path)
+    try:
+        target = sqlite3.connect(destination)
+        try:
+            source.backup(target)
+        finally:
+            target.close()
+    finally:
+        source.close()
+    return destination
+
+
+def _needs_migration(conn: sqlite3.Connection) -> bool:
+    """Vrai si la base existante n'est pas au dernier schéma."""
+    return bool(_missing_columns(conn)) or not _table_exists(conn, "articles_fts")
+
+
 def init_db(db_path: Path | None = None) -> Path:
-    """Crée les tables si besoin, puis rattrape les colonnes manquantes."""
+    """Crée les tables si besoin, puis rattrape ce qui manque au schéma.
+
+    Toute migration d'une base déjà peuplée est précédée d'une sauvegarde : le
+    schéma n'évolue qu'en ajouts, mais la seule façon d'annuler des *données*
+    est de reposer le fichier d'avant.
+    """
     path = db_path or settings.db_path
     schema = SCHEMA_PATH.read_text(encoding="utf-8")
     with get_conn(path) as conn:
+        # L'état d'avant se lit avant d'écrire quoi que ce soit.
+        fts_absent = not _table_exists(conn, "articles_fts")
+        if _table_exists(conn, "articles") and _needs_migration(conn):
+            print(f"Migration : sauvegarde prise — {backup_db(path)}")
+
         conn.executescript(schema)
-        for column in _add_missing_columns(conn):
+        added = _add_missing_columns(conn)
+        for column in added:
             print(f"Migration : colonne ajoutée — {column}")
+
+        # Uniquement à l'instant de la migration : rejoué à chaque démarrage, ce
+        # calage écraserait le repère d'une requête créée depuis.
+        if "queries.previous_visit_at" in added:
+            _seed_visits(conn)
+        if fts_absent:
+            # Contenu externe : 'rebuild' relit `articles` et refait l'index.
+            conn.execute("INSERT INTO articles_fts(articles_fts) VALUES('rebuild')")
+            print("Migration : index de recherche construit")
     return path
+
+
+def _seed_visits(conn: sqlite3.Connection) -> None:
+    """Cale sur maintenant les requêtes présentes à l'instant de la migration.
+
+    Sans ça, une requête antérieure verrait son repère tomber sur `created_at`
+    et présenterait tout son historique comme nouveau.
+    """
+    now = utcnow_iso()
+    conn.execute(
+        "UPDATE queries SET last_visited_at = ?, previous_visit_at = ?",
+        (now, now),
+    )
 
 
 if __name__ == "__main__":  # `uv run python -m app.db` initialise la base

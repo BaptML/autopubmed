@@ -73,7 +73,9 @@ _UNSET = object()  # frontière du « nouveau » pas encore déterminée
 
 @asynccontextmanager
 async def lifespan(app_: FastAPI):
-    init_db()
+    # `state.db_path` détourne l'initialisation vers une base jetable : sans
+    # lui, monter l'application dans un test migre la base de production.
+    init_db(getattr(app_.state, "db_path", None))
     # La frontière est fixée à la première requête servie, avec la connexion de
     # celle-ci (voir _new_since), puis figée pour toute la session.
     app_.state.new_since = _UNSET

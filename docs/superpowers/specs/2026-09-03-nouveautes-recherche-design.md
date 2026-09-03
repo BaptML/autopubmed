@@ -107,9 +107,12 @@ Quatre niveaux, du plus fin au plus radical.
 1. **Une phase** — `git revert <sha>` du commit de la phase.
 2. **Tout le chantier** — `git checkout master`. Le point de retour est
    `1b2b8d5`. La branche de travail est `feature/nouveautes-et-recherche`.
-3. **Les données** — une sauvegarde horodatée de la base est prise avant la
-   migration de la phase B, dans `backups/` (ignoré par git). Restaurer =
-   remettre le fichier en place, serveur arrêté.
+3. **Les données** — `init_db()` prend une sauvegarde horodatée avant toute
+   migration d'une base peuplée, dans `data/backups/` : à côté de la base, donc
+   dans le volume monté en conteneur, et ignoré par git. Elle passe par l'API
+   `backup()` de sqlite3 et non par une copie de fichier, le mode WAL rendant
+   le `.db` seul incomplet. Restaurer = remettre le fichier en place, serveur
+   arrêté.
 4. **Rien à faire, en fait** — les changements de schéma sont **additifs** :
    colonnes ajoutées et table FTS séparée. Le code de `master` fonctionne tel
    quel sur une base migrée, il ignore simplement ce qu'il ne connaît pas.
