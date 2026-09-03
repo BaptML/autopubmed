@@ -322,7 +322,14 @@ _ARTICLE_COLUMNS = f"""
 """
 
 
-def _article_select(where: str, order_by: str) -> str:
+# Un article est nouveau dans une requête si son rattachement est postérieur au
+# repère de visite de celle-ci. Définie une fois, la clause sert au badge comme
+# au flux des nouveautés, qui ne peuvent donc pas se contredire.
+_NEW_CLAUSE = """(q.previous_visit_at IS NOT NULL
+                  AND qa.first_seen > q.previous_visit_at)"""
+
+
+def _article_select(where: str, order_by: str, extra: str = "") -> str:
     """Fabrique la requête de lecture d'articles, seule forme utilisée par l'UI.
 
     `is_new` compare `first_seen` au repère de visite de la requête, lu par
@@ -333,8 +340,7 @@ def _article_select(where: str, order_by: str) -> str:
     return f"""
         SELECT {_ARTICLE_COLUMNS},
                qa.read, qa.first_seen, qa.query_id,
-               (q.previous_visit_at IS NOT NULL
-                AND qa.first_seen > q.previous_visit_at) AS is_new
+               {_NEW_CLAUSE} AS is_new{extra}
         FROM query_articles qa
         JOIN articles a ON a.pmid = qa.pmid
         JOIN queries q ON q.id = qa.query_id
@@ -382,6 +388,60 @@ def get_article_row(
         (query_id, pmid),
     ).fetchone()
     return dict(row) if row else None
+
+
+# --- Flux des nouveautés ---------------------------------------------------
+
+# L'ancienneté maximale se lit sur la requête d'origine : le flux traverse des
+# requêtes aux réglages différents, chacune garde le sien.
+_FLUX_AGE_CLAUSE = (
+    "(q.max_age_years IS NULL OR a.pub_date IS NULL "
+    "OR substr(a.pub_date || '-12-31', 1, 10) >= "
+    "date('now', '-' || q.max_age_years || ' years'))"
+)
+
+
+def list_new_articles(conn: sqlite3.Connection) -> list[dict]:
+    """Tout ce qui est arrivé depuis la dernière visite, requêtes confondues.
+
+    Un article présent dans deux requêtes apparaît une fois par requête : la
+    lecture et le repère se suivent par paire, pas par article.
+    """
+    rows = conn.execute(
+        _article_select(
+            where=f"{_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE}",
+            order_by="qa.first_seen DESC, a.pub_date DESC, a.pmid DESC",
+            extra=", q.name AS query_name, q.folder AS query_folder",
+        )
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def count_new_articles(conn: sqlite3.Connection) -> int:
+    """Compteur du flux, affiché en tête de barre latérale."""
+    return conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM query_articles qa
+        JOIN articles a ON a.pmid = qa.pmid
+        JOIN queries q ON q.id = qa.query_id
+        WHERE {_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE}
+        """
+    ).fetchone()["n"]
+
+
+def dismiss_new_articles(conn: sqlite3.Connection) -> None:
+    """Vide le flux, en calant toutes les requêtes sur maintenant.
+
+    C'est le seul geste qui décale les repères en bloc : ouvrir le flux ne
+    consomme rien, sans quoi le simple fait de le consulter l'effacerait.
+    """
+    now = utcnow_iso()
+    conn.execute(
+        "UPDATE queries SET previous_visit_at = ?, "
+        "last_visited_at = COALESCE(last_visited_at, ?)",
+        (now, now),
+    )
 
 
 # --- Favoris ---------------------------------------------------------------

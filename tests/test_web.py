@@ -298,6 +298,20 @@ def _remettre_a_neuf(client: TestClient) -> None:
         )
 
 
+def _repere_ancien(client: TestClient) -> None:
+    """Requête visitée jadis : son article compte pour une nouveauté.
+
+    Le flux ne pose pas de repère lui-même — le consulter ne consomme rien —
+    il faut donc qu'une visite ait déjà eu lieu.
+    """
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "UPDATE queries SET created_at = ?, last_visited_at = ?, "
+            "previous_visit_at = ?",
+            ("2020-01-01T00:00:00+00:00",) * 3,
+        )
+
+
 def test_le_badge_nouveau_suit_le_repere_de_visite(client: TestClient) -> None:
     liste = f"/queries/{client.query_id}/articles"
 
@@ -351,6 +365,69 @@ def test_le_repere_survit_au_redemarrage(client: TestClient) -> None:
 
     with TestClient(app) as apres_redemarrage:  # remonte l'application
         assert 'class="badge nouveau"' in apres_redemarrage.get(liste).text
+
+
+# --- Flux des nouveautés --------------------------------------------------
+
+
+def test_le_flux_liste_les_nouveautes_avec_leur_provenance(client: TestClient) -> None:
+    _repere_ancien(client)
+    page = client.get("/new").text
+    assert "Semaglutide in Heart Failure" in page
+    assert "NEJM / essais randomisés" in page
+
+
+def test_le_flux_est_vide_sans_repere(client: TestClient) -> None:
+    """Requête jamais ouverte : rien n'est présumé vu, donc rien n'est signalé."""
+    with get_conn(client.db_path) as conn:
+        conn.execute("UPDATE queries SET previous_visit_at = NULL")
+    assert "Rien de neuf depuis ta dernière visite" in client.get("/new").text
+
+
+def test_consulter_le_flux_ne_le_vide_pas(client: TestClient) -> None:
+    """Le point du choix : l'ouvrir ne doit pas effacer ce qu'on vient d'y voir."""
+    _repere_ancien(client)
+    assert "Semaglutide in Heart Failure" in client.get("/new").text
+    assert "Semaglutide in Heart Failure" in client.get("/new").text
+
+
+def test_ouvrir_la_requete_retire_ses_articles_du_flux(client: TestClient) -> None:
+    """L'article arrive entre deux sessions : signalé à la première, plus après."""
+    _repere_ancien(client)
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "UPDATE query_articles SET first_seen = ?", ("2020-03-01T00:00:00+00:00",)
+        )
+    assert "Semaglutide in Heart Failure" in client.get("/new").text
+
+    # La session où l'utilisateur le découvre, postérieure à son arrivée.
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "UPDATE queries SET last_visited_at = ?", ("2020-06-01T00:00:00+00:00",)
+        )
+    client.get(f"/queries/{client.query_id}/articles")  # la session suivante
+    assert "Rien de neuf depuis ta dernière visite" in client.get("/new").text
+
+
+def test_vider_le_flux_remet_la_barre_laterale_a_jour(client: TestClient) -> None:
+    _repere_ancien(client)
+    assert "1 à voir" in client.get("/queries").text
+
+    retour = client.post("/new/dismiss")
+    assert "Rien de neuf depuis ta dernière visite" in retour.text
+    assert 'hx-swap-oob="innerHTML:#barre-laterale"' in retour.text
+
+    barre = client.get("/queries").text
+    assert "1 à voir" not in barre
+    # « Vu » n'est pas « lu » : le compteur de non-lus de la requête ne bouge pas.
+    assert "1 nouv." in barre
+
+
+def test_le_flux_ouvre_l_encart_de_lecture(client: TestClient) -> None:
+    """La ligne garde son contexte de requête : elle reste cliquable."""
+    _repere_ancien(client)
+    page = client.get("/new").text
+    assert f"/articles/40000001/panel?query_id={client.query_id}" in page
 
 
 def test_resume_efetch_a_la_demande_puis_cache(

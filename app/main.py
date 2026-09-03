@@ -121,6 +121,7 @@ def _sidebar_context(conn: sqlite3.Connection) -> dict[str, Any]:
     return {
         "folders": repo.folders_with_queries(conn),
         "favorites_count": repo.count_favorites(conn),
+        "new_count": repo.count_new_articles(conn),
     }
 
 
@@ -470,6 +471,37 @@ async def _fill_missing_citations(conn: sqlite3.Connection) -> None:
     for summary in fetched:
         repo.upsert_article(conn, summary)
     conn.commit()
+
+
+@app.get("/new", response_class=HTMLResponse)
+def new_articles(
+    request: Request, conn: sqlite3.Connection = Depends(get_db)
+) -> HTMLResponse:
+    """Le flux : tout ce qui est arrivé depuis la dernière visite.
+
+    Consulter le flux ne consomme rien — sans quoi l'ouvrir le viderait. Seules
+    l'ouverture d'une requête et le bouton « Tout marquer comme vu » décalent
+    les repères.
+    """
+    return templates.TemplateResponse(
+        request,
+        "_new_list.html",
+        {"articles": repo.list_new_articles(conn)},
+    )
+
+
+@app.post("/new/dismiss", response_class=HTMLResponse)
+def dismiss_new(
+    request: Request, conn: sqlite3.Connection = Depends(get_db)
+) -> HTMLResponse:
+    """Vide le flux et rend la barre latérale à jour dans la foulée."""
+    repo.dismiss_new_articles(conn)
+    conn.commit()
+    return templates.TemplateResponse(
+        request,
+        "_new_and_sidebar.html",
+        {"articles": repo.list_new_articles(conn), **_sidebar_context(conn)},
+    )
 
 
 @app.get("/favorites", response_class=HTMLResponse)

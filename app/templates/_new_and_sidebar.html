@@ -1,0 +1,7 @@
+{# Réponse composite du flux : le panneau, plus la barre latérale rafraîchie
+   hors bande — vider le flux remet à zéro son compteur. #}
+{% include "_new_list.html" %}
+
+<div hx-swap-oob="innerHTML:#barre-laterale">
+  {% include "_sidebar.html" %}
+</div>

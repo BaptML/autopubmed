@@ -1,0 +1,67 @@
+{# Le flux : ce qui est arrivé depuis la dernière visite, toutes requêtes
+   confondues. Même gabarit de ligne que la liste d'une requête, pour que
+   l'encart de lecture et les actions se comportent à l'identique.
+
+   Un article présent dans deux requêtes y figure deux fois, une par requête :
+   c'est la paire (requête, article) qui porte la lecture et le repère. #}
+<div class="entete-liste">
+  <div class="rang">
+    <div class="titre-bloc">
+      <div class="surtitre">Toutes requêtes confondues · depuis ta dernière visite</div>
+      <h1>Nouveautés</h1>
+    </div>
+
+    <div class="compteurs">
+      <div class="compteur-bloc non-lus">
+        <span class="etiquette">Nouveaux</span>
+        <span class="valeur">{{ articles|length }}</span>
+      </div>
+      <div class="barre-actions compacte">
+        {# Toujours rendu, désactivé quand il n'y a rien : une commande qui
+           disparaît est une commande qu'on ne retrouve pas. #}
+        <button class="bouton mono accent"
+                {% if not articles %}disabled title="Le flux est déjà vide"{% endif %}
+                hx-post="/new/dismiss"
+                hx-target="#panneau" hx-swap="innerHTML"
+                hx-confirm="Marquer les {{ articles|length }} nouveauté{{ 's' if articles|length > 1 }} comme vues ? Elles resteront non lues.">
+          Tout marquer comme vu
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="note-pied">
+    Consulter ce flux ne le vide pas : une nouveauté disparaît quand tu ouvres
+    la requête qui l'a ramenée, ou par le bouton ci-dessus.
+  </div>
+</div>
+
+<div class="corps-liste">
+  <div class="colonne-articles">
+    <div class="barre-liste">
+      <span class="mono etiquette-liste">Nouveautés</span>
+    </div>
+
+    {% if not articles %}
+      <p class="vide-message">
+        Rien de neuf depuis ta dernière visite.<br>
+        Les nouveautés apparaissent ici à mesure que les requêtes se rafraîchissent.
+      </p>
+    {% endif %}
+
+    {% for article in articles %}
+      {# La provenance : indispensable ici, l'article ayant perdu le contexte
+         de sa requête. #}
+      <div class="provenance mono">{{ article.query_folder }} · {{ article.query_name }}</div>
+      {% include "_article_row.html" %}
+    {% endfor %}
+  </div>
+
+  <div class="poignee poignee-encart" data-cible="--panel-width"
+       role="separator" aria-orientation="vertical" tabindex="0"
+       title="Glisser pour redimensionner · double-clic pour réinitialiser"></div>
+
+  <aside class="colonne-encart" id="encart">
+    <p class="encart-vide">Sélectionne un article pour lire son résumé.</p>
+  </aside>
+</div>

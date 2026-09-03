@@ -1,5 +1,19 @@
-{# La bibliographie n'est pas une requête : elle ne se rafraîchit pas et
-   traverse tous les dossiers, d'où sa place à part, en tête. #}
+{# Le flux et la bibliographie ne sont pas des requêtes : ils traversent tous
+   les dossiers et ne se rafraîchissent pas, d'où leur place à part, en tête.
+   Le flux vient en premier : c'est le geste quotidien de la veille. #}
+<button class="lien-requete lien-biblio" data-query-id="nouveautes"
+        hx-get="/new" hx-target="#panneau" hx-swap="innerHTML">
+  <span class="ligne-titre">
+    <span class="nom">✦ Nouveautés</span>
+    {# « à voir » et non « nouv. » : les requêtes emploient déjà ce mot pour
+       leurs non-lus, et voir n'est pas lire. #}
+    <span class="compteur {{ 'vide' if not new_count }}">
+      {{ (new_count ~ ' à voir') if new_count else 'à jour' }}
+    </span>
+  </span>
+  <span class="meta-requete">toutes requêtes · depuis ta dernière visite</span>
+</button>
+
 <button class="lien-requete lien-biblio" data-query-id="favoris"
         hx-get="/favorites" hx-target="#panneau" hx-swap="innerHTML">
   <span class="ligne-titre">
