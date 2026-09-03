@@ -444,6 +444,57 @@ def dismiss_new_articles(conn: sqlite3.Connection) -> None:
     )
 
 
+# --- Recherche plein texte -------------------------------------------------
+
+
+def to_match_expression(saisie: str) -> str:
+    """Transforme une saisie libre en expression FTS5 sûre.
+
+    La syntaxe FTS5 a ses propres opérateurs : une apostrophe, un tiret ou un
+    « AND » saisi de bonne foi feraient lever SQLite. Chaque terme est donc mis
+    entre guillemets, ce qui le rend littéral, et les termes sont joints par un
+    ET implicite. Le dernier reçoit un joker : on cherche en tapant.
+    """
+    termes = [t for t in saisie.replace('"', " ").split() if t]
+    if not termes:
+        return ""
+    cites = [f'"{terme}"' for terme in termes[:-1]]
+    # Le joker se pose hors des guillemets, sinon il serait pris au pied de la
+    # lettre. Un terme d'une seule lettre ne le reçoit pas : trop de bruit.
+    dernier = termes[-1]
+    cites.append(f'"{dernier}"*' if len(dernier) > 1 else f'"{dernier}"')
+    return " ".join(cites)
+
+
+def search_articles(conn: sqlite3.Connection, saisie: str) -> list[dict]:
+    """Articles du cache local répondant à la saisie, les plus pertinents d'abord.
+
+    Cherche dans les titres, revues et auteurs — et dans les résumés déjà
+    récupérés, ceux-ci n'étant chargés qu'à la demande (§6 du spec).
+    """
+    expression = to_match_expression(saisie)
+    if not expression:
+        return []
+    rows = conn.execute(
+        f"""
+        SELECT {_ARTICLE_COLUMNS},
+               COALESCE(MAX(qa.read), 0) AS read,
+               MIN(qa.first_seen) AS first_seen,
+               MIN(qa.query_id) AS query_id,
+               COALESCE(MAX({_NEW_CLAUSE}), 0) AS is_new
+        FROM articles_fts
+        JOIN articles a ON a.rowid = articles_fts.rowid
+        LEFT JOIN query_articles qa ON qa.pmid = a.pmid
+        LEFT JOIN queries q ON q.id = qa.query_id
+        WHERE articles_fts MATCH ?
+        GROUP BY a.pmid
+        ORDER BY MIN(articles_fts.rank), a.pub_date DESC
+        """,
+        (expression,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
 # --- Favoris ---------------------------------------------------------------
 
 

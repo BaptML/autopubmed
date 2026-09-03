@@ -212,6 +212,31 @@ body.redimensionne { cursor: col-resize; user-select: none; }
   margin: 0 var(--gutter) var(--space-3);
 }
 
+/* Recherche dans le cache, en tête de barre latérale. Reprend l'habillage des
+   champs du formulaire pour n'introduire aucun dialecte visuel. */
+.champ-recherche {
+  padding: var(--space-3) var(--gutter);
+  border-bottom: 1px solid var(--color-divider);
+}
+.champ-recherche input {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  caret-color: var(--color-accent);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+}
+.champ-recherche input:hover {
+  border-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+.champ-recherche input:focus-visible {
+  border-color: var(--color-accent);
+  outline-offset: 0;
+}
+
 .lien-requete {
   display: block;
   width: 100%;

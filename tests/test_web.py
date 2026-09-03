@@ -430,6 +430,40 @@ def test_le_flux_ouvre_l_encart_de_lecture(client: TestClient) -> None:
     assert f"/articles/40000001/panel?query_id={client.query_id}" in page
 
 
+# --- Recherche locale -----------------------------------------------------
+
+
+def test_la_barre_laterale_porte_le_champ_de_recherche(client: TestClient) -> None:
+    barre = client.get("/queries").text
+    assert 'hx-get="/search"' in barre
+    # Anti-rebond, comme l'aperçu live : pas d'appel à chaque frappe.
+    assert 'hx-trigger="keyup changed delay:400ms, search"' in barre
+
+
+def test_la_recherche_trouve_un_article_du_cache(client: TestClient) -> None:
+    page = client.get("/search?q=semaglutide").text
+    assert "Semaglutide in Heart Failure" in page
+
+
+def test_la_recherche_sans_saisie_invite_a_taper(client: TestClient) -> None:
+    assert "Tape quelques mots" in client.get("/search?q=").text
+
+
+def test_la_recherche_sans_resultat_le_dit(client: TestClient) -> None:
+    page = client.get("/search?q=cardiologie").text
+    assert "Aucun article du cache ne répond" in page
+
+
+def test_la_recherche_ouvre_l_encart_de_lecture(client: TestClient) -> None:
+    page = client.get("/search?q=semaglutide").text
+    assert f"/articles/40000001/panel?query_id={client.query_id}" in page
+
+
+def test_une_saisie_hostile_ne_casse_pas_la_recherche(client: TestClient) -> None:
+    for saisie in ('"', "AND", "*", "((", "O'Brien"):
+        assert client.get("/search", params={"q": saisie}).status_code == 200
+
+
 def test_resume_efetch_a_la_demande_puis_cache(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:

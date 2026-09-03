@@ -504,6 +504,19 @@ def dismiss_new(
     )
 
 
+@app.get("/search", response_class=HTMLResponse)
+def search(
+    request: Request, q: str = "", conn: sqlite3.Connection = Depends(get_db)
+) -> HTMLResponse:
+    """Recherche dans le cache local. Aucun appel réseau : c'est notre base."""
+    saisie = q.strip()
+    return templates.TemplateResponse(
+        request,
+        "_search_results.html",
+        {"saisie": saisie, "articles": repo.search_articles(conn, saisie)},
+    )
+
+
 @app.get("/favorites", response_class=HTMLResponse)
 async def favorites(
     request: Request, conn: sqlite3.Connection = Depends(get_db)

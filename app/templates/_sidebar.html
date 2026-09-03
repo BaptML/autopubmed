@@ -1,3 +1,13 @@
+{# Recherche dans le cache local. Même anti-rebond que l'aperçu live ; pas de
+   `load` en revanche, une recherche vide n'ayant rien à dire. #}
+<form class="champ-recherche" onsubmit="return false">
+  <input type="search" name="q" placeholder="Chercher dans le cache…"
+         aria-label="Chercher dans les articles déjà ramenés"
+         hx-get="/search"
+         hx-trigger="keyup changed delay:400ms, search"
+         hx-target="#panneau" hx-swap="innerHTML">
+</form>
+
 {# Le flux et la bibliographie ne sont pas des requêtes : ils traversent tous
    les dossiers et ne se rafraîchissent pas, d'où leur place à part, en tête.
    Le flux vient en premier : c'est le geste quotidien de la veille. #}
