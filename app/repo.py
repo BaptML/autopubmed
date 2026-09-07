@@ -371,6 +371,16 @@ _AGE_CLAUSE = (
     "OR substr(a.pub_date || '-12-31', 1, 10) >= ?)"
 )
 
+# Borne haute : rien de daté après aujourd'hui (coquilles PubMed, numéros « à
+# paraître »). Option stricte, symétrique de `_AGE_CLAUSE` — la date partielle
+# est complétée vers la fin de période, si bien qu'une année seule ne repasse
+# « publiée » qu'au 31 décembre. `date('now')` est en UTC, comme
+# `_FLUX_AGE_CLAUSE`. Une date absente ne suffit pas à écarter l'article.
+_NOT_FUTURE_CLAUSE = (
+    "(a.pub_date IS NULL "
+    "OR substr(a.pub_date || '-12-31', 1, 10) <= date('now'))"
+)
+
 
 def list_articles_for_query(
     conn: sqlite3.Connection,
@@ -394,7 +404,7 @@ def list_articles_for_query(
 
 def _where_for_query(favorites_only: bool) -> str:
     """Filtre d'une liste de requête. Partagé par la lecture et le comptage."""
-    where = f"qa.query_id = ? AND {_AGE_CLAUSE}"
+    where = f"qa.query_id = ? AND {_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE}"
     if favorites_only:
         where += " AND EXISTS(SELECT 1 FROM favorites f WHERE f.pmid = a.pmid)"
     return where
@@ -452,7 +462,7 @@ def list_new_articles(
     """
     rows = conn.execute(
         _article_select(
-            where=f"{_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE}",
+            where=f"{_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE}",
             order_by="qa.first_seen DESC, a.pub_date DESC, a.pmid DESC",
             extra=", q.name AS query_name, q.folder AS query_folder",
             pagination=_limite(limit, offset),
@@ -469,7 +479,7 @@ def count_new_articles(conn: sqlite3.Connection) -> int:
         FROM query_articles qa
         JOIN articles a ON a.pmid = qa.pmid
         JOIN queries q ON q.id = qa.query_id
-        WHERE {_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE}
+        WHERE {_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE}
         """
     ).fetchone()["n"]
 
@@ -532,7 +542,7 @@ def search_articles(
         JOIN articles a ON a.rowid = articles_fts.rowid
         LEFT JOIN query_articles qa ON qa.pmid = a.pmid
         LEFT JOIN queries q ON q.id = qa.query_id
-        WHERE articles_fts MATCH ?
+        WHERE articles_fts MATCH ? AND {_NOT_FUTURE_CLAUSE}
         GROUP BY a.pmid
         ORDER BY MIN(articles_fts.rank), a.pub_date DESC
         {_limite(limit, offset)}
@@ -548,7 +558,9 @@ def count_search_results(conn: sqlite3.Connection, saisie: str) -> int:
     if not expression:
         return 0
     return conn.execute(
-        "SELECT COUNT(*) AS n FROM articles_fts WHERE articles_fts MATCH ?",
+        f"SELECT COUNT(*) AS n FROM articles_fts "
+        f"JOIN articles a ON a.rowid = articles_fts.rowid "
+        f"WHERE articles_fts MATCH ? AND {_NOT_FUTURE_CLAUSE}",
         (expression,),
     ).fetchone()["n"]
 

@@ -92,6 +92,13 @@ def test_le_flux_respecte_l_anciennete_de_chaque_requete(bac) -> None:
     assert "3" not in {art["pmid"] for art in repo.list_new_articles(conn)}
 
 
+def test_le_flux_ecarte_les_publications_futures(bac) -> None:
+    conn, a, _ = bac
+    _ajouter(conn, a, "3", first_seen=_il_y_a(minutes=1), pub_date="2999-01-01")
+    assert "3" not in {art["pmid"] for art in repo.list_new_articles(conn)}
+    assert repo.count_new_articles(conn) == 2
+
+
 def test_un_article_partage_apparait_une_fois_par_requete(bac) -> None:
     """La lecture se suit par paire (requête, article), pas par article."""
     conn, _, b = bac

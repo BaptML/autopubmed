@@ -146,6 +146,45 @@ def test_init_db_est_idempotent(base_peuplee: Path) -> None:
     assert len(list((base_peuplee.parent / "backups").glob("*.db"))) == 1
 
 
+# --- Purge des publications futures --------------------------------------
+
+
+def test_migration_purge_les_articles_dates_dans_le_futur(base_peuplee: Path) -> None:
+    """Nettoyage unique : le favori garde sa ligne, mais plus de rattachement."""
+    with get_conn(base_peuplee) as conn:
+        query_id = conn.execute("SELECT id FROM queries").fetchone()["id"]
+        repo.upsert_article(conn, _summary("f1", pub_date="2999-01-01"))
+        repo.upsert_article(conn, _summary("f2", pub_date="2999-01-01"))
+        repo.link_article(conn, query_id, "f1")
+        repo.link_article(conn, query_id, "f2")
+        repo.set_favorite(conn, "f2", True)
+        conn.execute("DELETE FROM app_state WHERE key = 'future_articles_purged'")
+
+    init_db(base_peuplee)
+
+    with get_conn(base_peuplee) as conn:
+        pmids = {r["pmid"] for r in conn.execute("SELECT pmid FROM articles")}
+        lies = {r["pmid"] for r in conn.execute("SELECT pmid FROM query_articles")}
+    assert pmids == {"1", "2", "f2"}  # f1 (non favori) quitte le cache
+    assert lies == {"1", "2"}  # f2 (favori) reste en biblio mais sans rattachement
+    assert len(list((base_peuplee.parent / "backups").glob("*.db"))) == 1
+
+
+def test_la_purge_ne_se_rejoue_pas(base_peuplee: Path) -> None:
+    """Le drapeau posé, un redémarrage ne reprend ni sauvegarde ni suppression."""
+    with get_conn(base_peuplee) as conn:
+        query_id = conn.execute("SELECT id FROM queries").fetchone()["id"]
+        repo.upsert_article(conn, _summary("tardif", pub_date="2999-01-01"))
+        repo.link_article(conn, query_id, "tardif")
+
+    init_db(base_peuplee)  # drapeau déjà posé par la fixture : rien ne bouge
+
+    with get_conn(base_peuplee) as conn:
+        pmids = {r["pmid"] for r in conn.execute("SELECT pmid FROM articles")}
+    assert "tardif" in pmids
+    assert not (base_peuplee.parent / "backups").exists()
+
+
 # --- Index de recherche ---------------------------------------------------
 
 

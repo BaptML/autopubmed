@@ -143,6 +143,16 @@ def test_aucune_saisie_ne_fait_lever(bac, saisie: str) -> None:
     repo.search_articles(conn, saisie)
 
 
+def test_la_recherche_ecarte_les_publications_futures(bac) -> None:
+    conn, query_id = bac
+    _ajouter(
+        conn, query_id, "3",
+        title="Early futuristic sepsis breakthrough", pub_date="2999-01-01",
+    )
+    assert _pmids(conn, "futuristic") == []
+    assert repo.count_search_results(conn, "sepsis") == 1
+
+
 def test_un_article_partage_n_apparait_qu_une_fois(bac) -> None:
     """Contrairement au flux : ici on cherche un article, pas une paire."""
     conn, query_id = bac

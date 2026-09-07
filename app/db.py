@@ -101,6 +101,44 @@ def _table_exists(conn: sqlite3.Connection, name: str) -> bool:
     return row is not None
 
 
+# Nettoyage unique. Des articles datés après aujourd'hui (coquilles PubMed,
+# numéros « à paraître ») faussaient compteurs et tris. Le filtre d'ingestion
+# empêche désormais les nouveaux d'être rattachés ; ceci vide le stock déjà en
+# base. Joué une seule fois, tracé dans `app_state`.
+_FUTURE_PURGE_KEY = "future_articles_purged"
+
+
+def _future_purge_done(conn: sqlite3.Connection) -> bool:
+    """Vrai si le nettoyage des articles datés dans le futur a déjà eu lieu."""
+    if not _table_exists(conn, "app_state"):
+        return False
+    row = conn.execute(
+        "SELECT 1 FROM app_state WHERE key = ?", (_FUTURE_PURGE_KEY,)
+    ).fetchone()
+    return row is not None
+
+
+def _purge_future_articles(conn: sqlite3.Connection) -> int:
+    """Retire les articles datés après aujourd'hui. Renvoie le nombre supprimé.
+
+    Option stricte, alignée sur `repo._NOT_FUTURE_CLAUSE` : la date partielle est
+    complétée vers la fin de période. Un favori garde sa ligne — il reste dans
+    la bibliographie — mais perd ses rattachements aux requêtes, pour ne plus
+    peser sur les compteurs. Les autres quittent le cache : la cascade nettoie
+    `query_articles`, le trigger FTS suit.
+    """
+    future = "substr(pub_date || '-12-31', 1, 10) > date('now')"
+    conn.execute(
+        f"DELETE FROM query_articles WHERE pmid IN "
+        f"(SELECT pmid FROM articles WHERE pub_date IS NOT NULL AND {future})"
+    )
+    cursor = conn.execute(
+        f"DELETE FROM articles WHERE pub_date IS NOT NULL AND {future} "
+        f"AND pmid NOT IN (SELECT pmid FROM favorites)"
+    )
+    return cursor.rowcount
+
+
 def backup_db(db_path: Path) -> Path:
     """Copie la base dans `backups/`, horodatée, et renvoie le chemin.
 
@@ -142,7 +180,9 @@ def init_db(db_path: Path | None = None) -> Path:
     with get_conn(path) as conn:
         # L'état d'avant se lit avant d'écrire quoi que ce soit.
         fts_absent = not _table_exists(conn, "articles_fts")
-        if _table_exists(conn, "articles") and _needs_migration(conn):
+        articles_present = _table_exists(conn, "articles")
+        purge_pending = articles_present and not _future_purge_done(conn)
+        if articles_present and (_needs_migration(conn) or purge_pending):
             print(f"Migration : sauvegarde prise — {backup_db(path)}")
 
         conn.executescript(schema)
@@ -158,6 +198,16 @@ def init_db(db_path: Path | None = None) -> Path:
             # Contenu externe : 'rebuild' relit `articles` et refait l'index.
             conn.execute("INSERT INTO articles_fts(articles_fts) VALUES('rebuild')")
             print("Migration : index de recherche construit")
+
+        if not _future_purge_done(conn):
+            removed = _purge_future_articles(conn)
+            conn.execute(
+                "INSERT OR REPLACE INTO app_state (key, value, updated_at) "
+                "VALUES (?, ?, ?)",
+                (_FUTURE_PURGE_KEY, utcnow_iso(), utcnow_iso()),
+            )
+            if removed:
+                print(f"Migration : {removed} article(s) daté(s) dans le futur retiré(s)")
     return path
 
 
