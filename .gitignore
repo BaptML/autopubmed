@@ -10,8 +10,10 @@ data/
 # Python
 __pycache__/
 *.py[cod]
-.venv/
+# Motif large : le partage SMB laisse parfois des `.venv-*` fantômes.
+.venv*/
 .pytest_cache/
+.ruff_cache/
 *.egg-info/
 
 # Éditeurs / OS

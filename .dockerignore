@@ -21,11 +21,12 @@ __pycache__/
 
 # Inutiles à l'exécution.
 .git/
+.gitattributes
 .gitignore
 .claude/
+.ruff_cache/
 tests/
 docs/
-design_handoff_pubmed_daily/
 lancer.cmd
 *.md
 
