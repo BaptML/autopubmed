@@ -154,9 +154,7 @@ async def refresh_query(
     already_known = repo.known_pmids(conn, search.pmids)
     to_refill = repo.pmids_missing_doi(conn, sorted(already_known))
     to_fetch = [
-        pmid
-        for pmid in search.pmids
-        if pmid not in already_known or pmid in to_refill
+        pmid for pmid in search.pmids if pmid not in already_known or pmid in to_refill
     ]
     summaries = await pubmed.esummary(to_fetch) if to_fetch else []
     report.newly_summarized = len(summaries)
@@ -252,7 +250,9 @@ def _print_articles(conn: sqlite3.Connection, query_id: int, limit: int) -> None
         quartile = f"Q{row['quartile']}" if row["quartile"] else "non classée"
         citedness = f" · citedness {row['citedness']:.1f}" if row["citedness"] else ""
         flag = " " if row["read"] else "•"
-        print(f"{flag} [{row['pub_date'] or '?'}] {row['journal']} ({quartile}{citedness})")
+        print(
+            f"{flag} [{row['pub_date'] or '?'}] {row['journal']} ({quartile}{citedness})"
+        )
         print(f"    {row['title'][:110]}")
 
 
@@ -263,8 +263,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Rafraîchir une requête PubMed")
     parser.add_argument("--list", action="store_true", help="lister les requêtes")
     parser.add_argument("--id", type=int, help="rafraîchir la requête d'identifiant N")
-    parser.add_argument("--all", action="store_true", help="rafraîchir toutes les requêtes")
-    parser.add_argument("--new", metavar="CHAINE", help="créer une requête puis la rafraîchir")
+    parser.add_argument(
+        "--all", action="store_true", help="rafraîchir toutes les requêtes"
+    )
+    parser.add_argument(
+        "--new", metavar="CHAINE", help="créer une requête puis la rafraîchir"
+    )
     parser.add_argument("--name", help="libellé de la requête créée")
     parser.add_argument("--folder", default="Sans dossier")
     parser.add_argument("--quartile-min", type=int, choices=[1, 2, 3, 4])

@@ -1,6 +1,6 @@
 """Tests du repère de visite, qui fonde le badge « nouveau »."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,7 +11,7 @@ from app.models import ArticleSummary
 
 
 def _il_y_a(minutes: int) -> str:
-    moment = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    moment = datetime.now(UTC) - timedelta(minutes=minutes)
     return moment.replace(microsecond=0).isoformat()
 
 
@@ -134,7 +134,8 @@ def test_horodatage_illisible_ouvre_une_session(bac) -> None:
     """Une date corrompue ne doit pas figer le repère pour toujours."""
     conn, query_id = bac
     conn.execute(
-        "UPDATE queries SET last_visited_at = ? WHERE id = ?", ("n'importe quoi", query_id)
+        "UPDATE queries SET last_visited_at = ? WHERE id = ?",
+        ("n'importe quoi", query_id),
     )
     repo.record_visit(conn, query_id)
     _, previous = _repere(conn, query_id)

@@ -97,10 +97,14 @@ def test_import_revue_non_classee_a_un_quartile_null(
 def test_import_est_idempotent(csv_file: Path, db_path: Path) -> None:
     with get_conn(db_path) as conn:
         import_csv(csv_file, conn)
-        first = conn.execute("SELECT COUNT(*) AS n FROM journal_quality").fetchone()["n"]
+        first = conn.execute("SELECT COUNT(*) AS n FROM journal_quality").fetchone()[
+            "n"
+        ]
     with get_conn(db_path) as conn:
         import_csv(csv_file, conn)
-        second = conn.execute("SELECT COUNT(*) AS n FROM journal_quality").fetchone()["n"]
+        second = conn.execute("SELECT COUNT(*) AS n FROM journal_quality").fetchone()[
+            "n"
+        ]
 
     assert first == second == 4
 

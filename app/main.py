@@ -68,8 +68,6 @@ def date_courte(value: str | None) -> str:
     return f"{pieces[2]}/{pieces[1]}" if len(pieces) == 3 else pieces[0]
 
 
-
-
 @asynccontextmanager
 async def lifespan(app_: FastAPI):
     # `state.db_path` détourne l'initialisation vers une base jetable : sans
@@ -192,9 +190,7 @@ def sidebar(
     request: Request, conn: sqlite3.Connection = Depends(get_db)
 ) -> HTMLResponse:
     """Fragment de la barre latérale : dossiers, requêtes, compteurs de non-lus."""
-    return templates.TemplateResponse(
-        request, "_sidebar.html", _sidebar_context(conn)
-    )
+    return templates.TemplateResponse(request, "_sidebar.html", _sidebar_context(conn))
 
 
 @app.get("/queries/new", response_class=HTMLResponse)
@@ -342,9 +338,7 @@ def remove_query(
 ) -> HTMLResponse:
     repo.delete_query(conn, query_id)
     conn.commit()
-    return templates.TemplateResponse(
-        request, "_deleted.html", _sidebar_context(conn)
-    )
+    return templates.TemplateResponse(request, "_deleted.html", _sidebar_context(conn))
 
 
 @app.post("/queries/{query_id}/refresh", response_class=HTMLResponse)
@@ -376,9 +370,7 @@ def mark_all_read(
     """Marque lus tous les articles de la requête courante, et d'elle seule."""
     repo.mark_all_read(conn, query_id)
     conn.commit()
-    return _panel_and_sidebar(
-        request, conn, query_id, favorites_only=bool(favorites)
-    )
+    return _panel_and_sidebar(request, conn, query_id, favorites_only=bool(favorites))
 
 
 def _panel_row_sidebar(
@@ -522,12 +514,8 @@ async def _fill_missing_citations(conn: sqlite3.Connection) -> None:
 def _new_context(conn: sqlite3.Connection, offset: int = 0) -> dict[str, Any]:
     """Contexte du flux, partagé par l'affichage, la purge et les pages."""
     return {
-        "articles": repo.list_new_articles(
-            conn, limit=repo.PAGE_SIZE, offset=offset
-        ),
-        **_pagination(
-            repo.count_new_articles(conn), offset=offset, url_suite="/new?"
-        ),
+        "articles": repo.list_new_articles(conn, limit=repo.PAGE_SIZE, offset=offset),
+        **_pagination(repo.count_new_articles(conn), offset=offset, url_suite="/new?"),
     }
 
 

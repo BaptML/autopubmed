@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime, timedelta, timezone
+from datetime import UTC, date, datetime, timedelta
 
 from app.config import settings
 from app.db import utcnow_iso
@@ -341,7 +341,9 @@ def _limite(limit: int | None, offset: int) -> str:
     return f"LIMIT {int(limit)} OFFSET {int(offset)}"
 
 
-def _article_select(where: str, order_by: str, extra: str = "", pagination: str = "") -> str:
+def _article_select(
+    where: str, order_by: str, extra: str = "", pagination: str = ""
+) -> str:
     """Fabrique la requête de lecture d'articles, seule forme utilisée par l'UI.
 
     `is_new` compare `first_seen` au repère de visite de la requête, lu par
@@ -367,8 +369,7 @@ def _article_select(where: str, order_by: str, extra: str = "", pagination: str 
 # lexicographique, et l'article serait écarté à tort. Une date absente ne permet
 # pas d'affirmer que l'article est trop vieux : on le garde.
 _AGE_CLAUSE = (
-    "(? IS NULL OR a.pub_date IS NULL "
-    "OR substr(a.pub_date || '-12-31', 1, 10) >= ?)"
+    "(? IS NULL OR a.pub_date IS NULL OR substr(a.pub_date || '-12-31', 1, 10) >= ?)"
 )
 
 # Borne haute : rien de daté après aujourd'hui (coquilles PubMed, numéros « à
@@ -377,8 +378,7 @@ _AGE_CLAUSE = (
 # « publiée » qu'au 31 décembre. `date('now')` est en UTC, comme
 # `_FLUX_AGE_CLAUSE`. Une date absente ne suffit pas à écarter l'article.
 _NOT_FUTURE_CLAUSE = (
-    "(a.pub_date IS NULL "
-    "OR substr(a.pub_date || '-12-31', 1, 10) <= date('now'))"
+    "(a.pub_date IS NULL OR substr(a.pub_date || '-12-31', 1, 10) <= date('now'))"
 )
 
 
@@ -430,9 +430,7 @@ def count_articles_for_query(
     ).fetchone()["n"]
 
 
-def get_article_row(
-    conn: sqlite3.Connection, query_id: int, pmid: str
-) -> dict | None:
+def get_article_row(conn: sqlite3.Connection, query_id: int, pmid: str) -> dict | None:
     """Une seule ligne d'article, pour la re-rendre après un changement d'état."""
     row = conn.execute(
         _article_select("qa.query_id = ? AND qa.pmid = ?", "a.pmid"),
@@ -675,6 +673,7 @@ def count_unread(conn: sqlite3.Connection, query_id: int) -> int:
 
 # --- État de l'application ----------------------------------------------
 
+
 def get_app_state(conn: sqlite3.Connection, key: str) -> str | None:
     row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
     return row["value"] if row else None
@@ -735,8 +734,8 @@ def _passe_le_seuil(last_visited_at: str, gap_minutes: int) -> bool:
     except ValueError:  # horodatage illisible : on repart d'une session propre
         return True
     if last.tzinfo is None:
-        last = last.replace(tzinfo=timezone.utc)
-    return datetime.now(timezone.utc) - last >= timedelta(minutes=gap_minutes)
+        last = last.replace(tzinfo=UTC)
+    return datetime.now(UTC) - last >= timedelta(minutes=gap_minutes)
 
 
 # --- Qualité des revues --------------------------------------------------
@@ -755,13 +754,18 @@ def get_quality_map(
         issns,
     ).fetchall()
     return {
-        row["issn"]: JournalQuality(quartile=row["quartile"], citedness=row["citedness"])
+        row["issn"]: JournalQuality(
+            quartile=row["quartile"], citedness=row["citedness"]
+        )
         for row in rows
     }
 
 
 def set_citedness(
-    conn: sqlite3.Connection, issn: str, citedness: float | None, journal_name: str | None
+    conn: sqlite3.Connection,
+    issn: str,
+    citedness: float | None,
+    journal_name: str | None,
 ) -> None:
     """Mémorise la citedness OpenAlex sans toucher au quartile Scimago.
 

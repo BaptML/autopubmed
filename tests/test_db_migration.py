@@ -10,14 +10,14 @@ from app.models import ArticleSummary
 
 
 def _summary(pmid: str, **kwargs) -> ArticleSummary:
-    champs = dict(
-        pmid=pmid,
-        title=f"Titre {pmid}",
-        journal="N Engl J Med",
-        issn="00284793",
-        eissn=None,
-        pub_date="2026-01-15",
-    )
+    champs = {
+        "pmid": pmid,
+        "title": f"Titre {pmid}",
+        "journal": "N Engl J Med",
+        "issn": "00284793",
+        "eissn": None,
+        "pub_date": "2026-01-15",
+    }
     champs.update(kwargs)
     return ArticleSummary(**champs)
 

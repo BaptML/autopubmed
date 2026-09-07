@@ -29,8 +29,20 @@ _PUBDATE_RE = re.compile(r"^(\d{4})(?:\s+(\w{3}))?(?:\s+(\d{1,2}))?")
 _MONTHS = {
     m: f"{i:02d}"
     for i, m in enumerate(
-        ["jan", "feb", "mar", "apr", "may", "jun",
-         "jul", "aug", "sep", "oct", "nov", "dec"],
+        [
+            "jan",
+            "feb",
+            "mar",
+            "apr",
+            "may",
+            "jun",
+            "jul",
+            "aug",
+            "sep",
+            "oct",
+            "nov",
+            "dec",
+        ],
         start=1,
     )
 }
@@ -188,7 +200,9 @@ def parse_nlmcatalog_xml(xml: str) -> list[JournalMatch]:
             if (normalized := normalize_issn(node.text))
         ]
         matches.append(
-            JournalMatch(title=title.rstrip("."), abbreviation=abbreviation, issns=issns)
+            JournalMatch(
+                title=title.rstrip("."), abbreviation=abbreviation, issns=issns
+            )
         )
     return matches
 
@@ -226,7 +240,7 @@ class PubMedClient:
         self._owns_client = client is None
         self._limiter = RateLimiter(settings.ncbi_requests_per_second)
 
-    async def __aenter__(self) -> "PubMedClient":
+    async def __aenter__(self) -> PubMedClient:
         return self
 
     async def __aexit__(self, *_exc: object) -> None:
@@ -275,7 +289,9 @@ class PubMedClient:
             # pertinence).
             "sort": "pub_date",
         }
-        window = reldate_days if reldate_days is not None else settings.refresh_reldate_days
+        window = (
+            reldate_days if reldate_days is not None else settings.refresh_reldate_days
+        )
         if window:
             params["reldate"] = window
             params["datetype"] = "edat"  # date d'entrée dans PubMed
@@ -329,7 +345,9 @@ class PubMedClient:
                 "retmode": "json",
             },
         )
-        ids = [str(uid) for uid in search.json().get("esearchresult", {}).get("idlist", [])]
+        ids = [
+            str(uid) for uid in search.json().get("esearchresult", {}).get("idlist", [])
+        ]
         if not ids:
             return []
 

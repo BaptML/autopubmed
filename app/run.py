@@ -41,7 +41,9 @@ def _contact_problems() -> list[str]:
     Le NCBI et OpenAlex identifient l'appelant par ces champs : une adresse
     `example.com` vaut une absence de contact.
     """
-    problems = [f"{name} est vide dans .env" for name in settings.missing_contact_fields()]
+    problems = [
+        f"{name} est vide dans .env" for name in settings.missing_contact_fields()
+    ]
     placeholders = {
         "NCBI_EMAIL": settings.ncbi_email,
         "OPENALEX_MAILTO": settings.openalex_mailto,

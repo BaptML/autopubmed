@@ -1,6 +1,6 @@
 """Tests du flux transversal des nouveautés."""
 
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -11,19 +11,19 @@ from app.models import ArticleSummary
 
 
 def _il_y_a(minutes: int) -> str:
-    moment = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    moment = datetime.now(UTC) - timedelta(minutes=minutes)
     return moment.replace(microsecond=0).isoformat()
 
 
 def _ajouter(conn, query_id: int, pmid: str, first_seen: str, **kwargs) -> None:
-    champs = dict(
-        pmid=pmid,
-        title=f"Titre {pmid}",
-        journal="N Engl J Med",
-        issn="00284793",
-        eissn=None,
-        pub_date="2026-01-15",
-    )
+    champs = {
+        "pmid": pmid,
+        "title": f"Titre {pmid}",
+        "journal": "N Engl J Med",
+        "issn": "00284793",
+        "eissn": None,
+        "pub_date": "2026-01-15",
+    }
     champs.update(kwargs)
     repo.upsert_article(conn, ArticleSummary(**champs))
     repo.link_article(conn, query_id, pmid)

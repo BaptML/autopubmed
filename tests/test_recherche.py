@@ -10,14 +10,14 @@ from app.models import ArticleSummary
 
 
 def _ajouter(conn, query_id: int | None, pmid: str, **kwargs) -> None:
-    champs = dict(
-        pmid=pmid,
-        title=f"Titre {pmid}",
-        journal="N Engl J Med",
-        issn="00284793",
-        eissn=None,
-        pub_date="2026-01-15",
-    )
+    champs = {
+        "pmid": pmid,
+        "title": f"Titre {pmid}",
+        "journal": "N Engl J Med",
+        "issn": "00284793",
+        "eissn": None,
+        "pub_date": "2026-01-15",
+    }
     champs.update(kwargs)
     repo.upsert_article(conn, ArticleSummary(**champs))
     if query_id is not None:
@@ -146,8 +146,11 @@ def test_aucune_saisie_ne_fait_lever(bac, saisie: str) -> None:
 def test_la_recherche_ecarte_les_publications_futures(bac) -> None:
     conn, query_id = bac
     _ajouter(
-        conn, query_id, "3",
-        title="Early futuristic sepsis breakthrough", pub_date="2999-01-01",
+        conn,
+        query_id,
+        "3",
+        title="Early futuristic sepsis breakthrough",
+        pub_date="2999-01-01",
     )
     assert _pmids(conn, "futuristic") == []
     assert repo.count_search_results(conn, "sepsis") == 1
@@ -155,7 +158,7 @@ def test_la_recherche_ecarte_les_publications_futures(bac) -> None:
 
 def test_un_article_partage_n_apparait_qu_une_fois(bac) -> None:
     """Contrairement au flux : ici on cherche un article, pas une paire."""
-    conn, query_id = bac
+    conn, _ = bac
     autre = repo.create_query(conn, name="B", pubmed_query="y")
     repo.link_article(conn, autre, "1")
     assert _pmids(conn, "sepsis") == ["1"]

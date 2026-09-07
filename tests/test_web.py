@@ -30,7 +30,9 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
             pubmed_query='"N Engl J Med"[ta]',
             quartile_min=1,
         )
-        repo.create_query(conn, name="Requête vide", folder="Brouillons", pubmed_query="zzz")
+        repo.create_query(
+            conn, name="Requête vide", folder="Brouillons", pubmed_query="zzz"
+        )
         repo.upsert_article(
             conn,
             ArticleSummary(
@@ -212,7 +214,9 @@ def test_creation_conserve_la_chaine_pubmed_a_l_identique(client: TestClient) ->
     assert response.status_code == 200
 
     with get_conn(client.db_path) as conn:
-        created = [q for q in repo.list_queries(conn) if q.name == "Nouvelle veille"][0]
+        created = next(
+            q for q in repo.list_queries(conn) if q.name == "Nouvelle veille"
+        )
     assert created.pubmed_query == brute.strip()  # seuls les espaces de bord sautent
     assert created.quartile_min == 2
     assert created.citedness_min is None  # champ vide = pas de filtre, pas zéro
@@ -221,8 +225,14 @@ def test_creation_conserve_la_chaine_pubmed_a_l_identique(client: TestClient) ->
 def test_creation_rafraichit_la_barre_laterale_hors_bande(client: TestClient) -> None:
     response = client.post(
         "/queries/new",
-        data={"name": "Veille B", "pubmed_query": "x[tiab]", "folder": "Autre",
-              "quartile_min": "", "citedness_min": "", "sort": "date_desc"},
+        data={
+            "name": "Veille B",
+            "pubmed_query": "x[tiab]",
+            "folder": "Autre",
+            "quartile_min": "",
+            "citedness_min": "",
+            "sort": "date_desc",
+        },
     )
     # Un seul aller-retour met à jour le panneau et la colonne de gauche.
     assert 'hx-swap-oob="innerHTML:#barre-laterale"' in response.text
@@ -233,9 +243,14 @@ def test_edition_met_a_jour_sans_toucher_aux_articles(client: TestClient) -> Non
     query_id = client.query_id
     response = client.post(
         f"/queries/{query_id}/edit",
-        data={"name": "Renommée", "pubmed_query": '"N Engl J Med"[ta]',
-              "folder": "Références", "quartile_min": "", "citedness_min": "3,5",
-              "sort": "journal"},
+        data={
+            "name": "Renommée",
+            "pubmed_query": '"N Engl J Med"[ta]',
+            "folder": "Références",
+            "quartile_min": "",
+            "citedness_min": "3,5",
+            "sort": "journal",
+        },
     )
     assert response.status_code == 200
     assert "Semaglutide in Heart Failure" in response.text  # article conservé
@@ -248,7 +263,9 @@ def test_edition_met_a_jour_sans_toucher_aux_articles(client: TestClient) -> Non
     assert query.sort == "journal"
 
 
-def test_suppression_retire_la_requete_et_garde_les_articles(client: TestClient) -> None:
+def test_suppression_retire_la_requete_et_garde_les_articles(
+    client: TestClient,
+) -> None:
     response = client.delete(f"/queries/{client.query_id}")
     assert response.status_code == 200
     assert "Requête supprimée" in response.text
@@ -674,7 +691,8 @@ class FakePubMedClient:
     """Simule PubMedClient pour les routes qui appellent PubMed."""
 
     def __init__(
-        self, abstract: str | None = "OBJECTIF : Évaluer le sémaglutide.\n\n"
+        self,
+        abstract: str | None = "OBJECTIF : Évaluer le sémaglutide.\n\n"
         "RÉSULTATS : Amélioration nette.",
         summaries: list | None = None,
         en_panne: bool = False,

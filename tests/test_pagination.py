@@ -1,7 +1,7 @@
 """Tests de la pagination des trois listes : requête, flux, recherche."""
 
 from collections.abc import Iterator
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from html import unescape
 from pathlib import Path
 
@@ -18,7 +18,7 @@ TOTAL = repo.PAGE_SIZE * 2 + 7
 
 
 def _il_y_a(minutes: int) -> str:
-    moment = datetime.now(timezone.utc) - timedelta(minutes=minutes)
+    moment = datetime.now(UTC) - timedelta(minutes=minutes)
     return moment.replace(microsecond=0).isoformat()
 
 
@@ -47,9 +47,7 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
                 ),
             )
             repo.link_article(conn, query_id, f"{40000000 + i}")
-        conn.execute(
-            "UPDATE query_articles SET first_seen = ?", (_il_y_a(minutes=30),)
-        )
+        conn.execute("UPDATE query_articles SET first_seen = ?", (_il_y_a(minutes=30),))
 
     def override() -> Iterator:
         conn = connect(db_path)
@@ -139,9 +137,10 @@ def test_une_page_suivante_ne_rend_que_les_lignes(client: TestClient) -> None:
 def test_les_pages_ne_se_recouvrent_pas(client: TestClient) -> None:
     premiere = client.get(f"/queries/{client.query_id}/articles").text
     seconde = client.get(f"/queries/{client.query_id}/articles?offset=50").text
-    pmids = lambda p: {  # noqa: E731
-        bloc.split('"', 1)[0] for bloc in p.split('id="article-')[1:]
-    }
+
+    def pmids(page: str) -> set[str]:
+        return {bloc.split('"', 1)[0] for bloc in page.split('id="article-')[1:]}
+
     assert not (pmids(premiere) & pmids(seconde))
 
 
@@ -211,7 +210,5 @@ def test_sans_limite_le_depot_rend_tout(client: TestClient) -> None:
 def test_le_decalage_avance_dans_la_liste(client: TestClient) -> None:
     with get_conn(client.db_path) as conn:
         tout = repo.list_articles_for_query(conn, client.query_id)
-        page = repo.list_articles_for_query(
-            conn, client.query_id, limit=10, offset=20
-        )
+        page = repo.list_articles_for_query(conn, client.query_id, limit=10, offset=20)
     assert [a["pmid"] for a in page] == [a["pmid"] for a in tout[20:30]]

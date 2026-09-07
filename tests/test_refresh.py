@@ -27,7 +27,9 @@ class FakePubMed:
         self._summaries = {s.pmid: s for s in summaries}
         self.esummary_calls: list[list[str]] = []
 
-    async def esearch(self, term: str, *, reldate_days: int | None = None) -> ESearchResult:
+    async def esearch(
+        self, term: str, *, reldate_days: int | None = None
+    ) -> ESearchResult:
         return ESearchResult(
             pmids=list(self._summaries),
             count=len(self._summaries),
@@ -41,10 +43,16 @@ class FakePubMed:
         return [self._summaries[p] for p in pmids if p in self._summaries]
 
 
-def _article(pmid: str, journal: str, issn: str | None, eissn: str | None) -> ArticleSummary:
+def _article(
+    pmid: str, journal: str, issn: str | None, eissn: str | None
+) -> ArticleSummary:
     return ArticleSummary(
-        pmid=pmid, title=f"Titre {pmid}", journal=journal,
-        issn=issn, eissn=eissn, pub_date="2026-01-15",
+        pmid=pmid,
+        title=f"Titre {pmid}",
+        journal=journal,
+        issn=issn,
+        eissn=eissn,
+        pub_date="2026-01-15",
     )
 
 
@@ -165,8 +173,13 @@ def test_les_articles_sans_doi_connu_ne_sont_pas_reinterroges(db: Path) -> None:
 def test_les_articles_anterieurs_a_la_colonne_doi_sont_rattrapes(db: Path) -> None:
     """Une ligne avec `doi` à NULL date d'avant la migration : on la complète."""
     avec_doi = ArticleSummary(
-        pmid="1", title="Titre 1", journal="N Engl J Med",
-        issn=NEJM_ISSN, eissn=None, pub_date="2026-01-15", doi="10.1056/x",
+        pmid="1",
+        title="Titre 1",
+        journal="N Engl J Med",
+        issn=NEJM_ISSN,
+        eissn=None,
+        pub_date="2026-01-15",
+        doi="10.1056/x",
     )
     fake = FakePubMed([avec_doi])
     with get_conn(db) as conn:
@@ -191,8 +204,12 @@ def test_last_refreshed_at_est_horodate(db: Path) -> None:
 
 def _dated(pmid: str, pub_date: str | None) -> ArticleSummary:
     return ArticleSummary(
-        pmid=pmid, title=f"Titre {pmid}", journal="N Engl J Med",
-        issn=NEJM_ISSN, eissn=None, pub_date=pub_date,
+        pmid=pmid,
+        title=f"Titre {pmid}",
+        journal="N Engl J Med",
+        issn=NEJM_ISSN,
+        eissn=None,
+        pub_date=pub_date,
     )
 
 
@@ -244,7 +261,9 @@ def test_les_publications_futures_sont_ecartees(db: Path) -> None:
     articles = [
         _dated("hier", hier),
         _dated("demain", (date.today() + timedelta(days=1)).isoformat()),
-        _dated("annee_courante", str(date.today().year)),  # partielle, complétée au 31/12
+        _dated(
+            "annee_courante", str(date.today().year)
+        ),  # partielle, complétée au 31/12
         _dated("dans_un_an", (date.today() + timedelta(days=400)).isoformat()),
     ]
     fake = FakePubMed(articles)

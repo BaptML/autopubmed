@@ -9,7 +9,7 @@ from __future__ import annotations
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import PROJECT_ROOT, settings
@@ -19,7 +19,7 @@ SCHEMA_PATH: Path = PROJECT_ROOT / "app" / "schema.sql"
 
 def utcnow_iso() -> str:
     """Horodatage ISO 8601 à la seconde, en UTC — format stocké partout."""
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def connect(db_path: Path | None = None) -> sqlite3.Connection:
@@ -148,7 +148,7 @@ def backup_db(db_path: Path) -> Path:
     """
     backup_dir = db_path.parent / "backups"
     backup_dir.mkdir(parents=True, exist_ok=True)
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     destination = backup_dir / f"{db_path.stem}-{stamp}.db"
 
     source = sqlite3.connect(db_path)
@@ -207,7 +207,9 @@ def init_db(db_path: Path | None = None) -> Path:
                 (_FUTURE_PURGE_KEY, utcnow_iso(), utcnow_iso()),
             )
             if removed:
-                print(f"Migration : {removed} article(s) daté(s) dans le futur retiré(s)")
+                print(
+                    f"Migration : {removed} article(s) daté(s) dans le futur retiré(s)"
+                )
     return path
 
 
