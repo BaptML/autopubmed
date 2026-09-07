@@ -59,6 +59,7 @@ class Settings:
     ollama_timeout_seconds: int
     ollama_num_ctx: int
     ollama_keep_alive: str
+    ollama_use_model_prompt: bool
     enable_llm_summary: bool
 
     @property
@@ -99,6 +100,7 @@ def _load() -> Settings:
         ollama_timeout_seconds=_env_int("OLLAMA_TIMEOUT_SECONDS", 180),
         ollama_num_ctx=_env_int("OLLAMA_NUM_CTX", 3072),
         ollama_keep_alive=_env_str("OLLAMA_KEEP_ALIVE", "5m"),
+        ollama_use_model_prompt=_env_bool("OLLAMA_USE_MODEL_PROMPT", False),
         enable_llm_summary=_env_bool("ENABLE_LLM_SUMMARY", True),
     )
 

@@ -11,6 +11,7 @@ import asyncio
 import re
 import sys
 from dataclasses import dataclass
+from typing import Any
 
 import httpx
 
@@ -130,23 +131,39 @@ class OllamaClient:
         toucher au `.env`. L'application n'y touche pas.
         """
         chosen = model or settings.ollama_model
-        payload = {
+        user_message = {
+            "role": "user",
+            "content": build_user_prompt(title, abstract),
+        }
+        payload: dict[str, Any] = {
             "model": chosen,
             "stream": False,
             # Les modèles « thinking » (qwen3.5…) brûleraient des centaines de
             # tokens de raisonnement avant de répondre.
             "think": False,
             "keep_alive": settings.ollama_keep_alive,
+            # Un résumé coupé en pleine phrase est un défaut, pas une
+            # préférence : ce plafond s'impose dans les deux modes. `num_ctx`
+            # de même — c'est une contrainte de VRAM, qui relève de la machine
+            # et non du prompt embarqué dans le modèle.
             "options": {
-                "temperature": 0.2,
-                "num_ctx": settings.ollama_num_ctx,
                 "num_predict": 700,
+                "num_ctx": settings.ollama_num_ctx,
             },
-            "messages": [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": build_user_prompt(title, abstract)},
-            ],
         }
+        if settings.ollama_use_model_prompt:
+            # Le modèle porte son propre prompt (Modelfile). Envoyer un message
+            # `system` ici l'écraserait en silence, et ses PARAMETER seraient
+            # masqués par nos `options` : on ne transmet donc que le strict
+            # nécessaire et on lui laisse la main.
+            payload["messages"] = [user_message]
+        else:
+            payload["options"]["temperature"] = 0.2
+            payload["messages"] = [
+                {"role": "system", "content": SYSTEM_PROMPT},
+                user_message,
+            ]
+
         async with _GENERATION_SLOT:
             response = await self._client.post(
                 f"{settings.ollama_base_url}/api/chat", json=payload

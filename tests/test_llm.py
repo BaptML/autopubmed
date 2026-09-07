@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from dataclasses import replace
 
 import httpx
 import pytest
@@ -64,17 +65,14 @@ def test_le_resume_et_les_metriques_sont_lus() -> None:
     assert summary.tokens_per_second == pytest.approx(20.0)
 
 
-def test_la_charge_desactive_le_raisonnement_et_le_flux() -> None:
-    """Sans `think: false`, un modèle de raisonnement double le temps d'attente."""
-    vues: list[dict] = []
+def test_la_charge_desactive_le_raisonnement_et_le_flux(monkeypatch) -> None:
+    """Sans `think: false`, un modèle de raisonnement double le temps d'attente.
 
-    def handler(request: httpx.Request) -> httpx.Response:
-        vues.append(json.loads(request.content))
-        return httpx.Response(200, json=REPONSE_TYPE)
+    Le mode est fixé explicitement : sinon le test lirait le `.env` du poste et
+    changerait de comportement d'une machine à l'autre.
+    """
+    charge = _charge_envoyee(monkeypatch, ollama_use_model_prompt=False)
 
-    asyncio.run(_resumer(handler))
-
-    charge = vues[0]
     assert charge["think"] is False
     assert charge["stream"] is False
     assert charge["model"] == settings.ollama_model
@@ -83,20 +81,44 @@ def test_la_charge_desactive_le_raisonnement_et_le_flux() -> None:
     assert "français" in charge["messages"][0]["content"]
 
 
-def test_une_sortie_coupee_est_signalee() -> None:
-    """`done_reason: length` = plafond num_predict heurté, texte tronqué."""
+def _charge_envoyee(monkeypatch, **reglages) -> dict:
+    """Corps JSON réellement transmis à Ollama, sous les réglages donnés."""
+    # Settings est gelé : on substitue l'objet entier, pas un de ses champs.
+    monkeypatch.setattr("app.llm.settings", replace(settings, **reglages))
+    vues: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={**REPONSE_TYPE, "done_reason": "length"})
-
-    assert asyncio.run(_resumer(handler)).truncated is True
-
-
-def test_une_sortie_complete_n_est_pas_signalee() -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
+        vues.append(json.loads(request.content))
         return httpx.Response(200, json=REPONSE_TYPE)
 
-    assert asyncio.run(_resumer(handler)).truncated is False
+    asyncio.run(_resumer(handler))
+    return vues[0]
+
+
+def test_le_prompt_du_modele_remplace_le_notre(monkeypatch) -> None:
+    """Un message `system` écraserait le SYSTEM du Modelfile : on n'en met pas."""
+    charge = _charge_envoyee(monkeypatch, ollama_use_model_prompt=True)
+
+    roles = [m["role"] for m in charge["messages"]]
+    assert roles == ["user"]
+    # La température appartient alors au Modelfile, pas à nous.
+    assert "temperature" not in charge["options"]
+
+
+def test_les_garde_fous_restent_dans_les_deux_modes(monkeypatch) -> None:
+    """num_predict et num_ctx tiennent à la machine, pas au prompt."""
+    for mode in (True, False):
+        charge = _charge_envoyee(monkeypatch, ollama_use_model_prompt=mode)
+        assert charge["options"]["num_predict"] == 700
+        assert charge["options"]["num_ctx"] == settings.ollama_num_ctx
+        assert charge["think"] is False
+
+
+def test_par_defaut_nous_envoyons_notre_prompt(monkeypatch) -> None:
+    charge = _charge_envoyee(monkeypatch, ollama_use_model_prompt=False)
+
+    assert [m["role"] for m in charge["messages"]] == ["system", "user"]
+    assert charge["options"]["temperature"] == 0.2
 
 
 def test_l_erreur_http_remonte_a_l_appelant() -> None:
