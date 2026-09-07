@@ -24,6 +24,10 @@ def _env_int(name: str, default: int) -> int:
         raise ValueError(f"{name} doit être un entier, reçu : {raw!r}") from exc
 
 
+def _env_str(name: str, default: str) -> str:
+    return os.getenv(name, "").strip() or default
+
+
 def _env_bool(name: str, default: bool) -> bool:
     raw = os.getenv(name, "").strip().lower()
     if not raw:
@@ -48,6 +52,13 @@ class Settings:
     # session, et décale le repère du badge « nouveau ». En deçà, recharger la
     # liste n'efface pas les badges qu'on est en train de regarder.
     visit_session_gap_minutes: int
+    # Résumé français par LLM local, servi par Ollama sur la même machine :
+    # rien ne sort du serveur. `enable_llm_summary` à 0 retire la fonction.
+    ollama_base_url: str
+    ollama_model: str
+    ollama_timeout_seconds: int
+    ollama_keep_alive: str
+    enable_llm_summary: bool
 
     @property
     def ncbi_requests_per_second(self) -> int:
@@ -80,6 +91,13 @@ def _load() -> Settings:
         enable_scheduler=_env_bool("ENABLE_SCHEDULER", False),
         scheduler_interval_minutes=_env_int("SCHEDULER_INTERVAL_MINUTES", 360),
         visit_session_gap_minutes=_env_int("VISIT_SESSION_GAP_MINUTES", 30),
+        ollama_base_url=_env_str("OLLAMA_BASE_URL", "http://localhost:11434").rstrip(
+            "/"
+        ),
+        ollama_model=_env_str("OLLAMA_MODEL", "qwen3.5:4b"),
+        ollama_timeout_seconds=_env_int("OLLAMA_TIMEOUT_SECONDS", 180),
+        ollama_keep_alive=_env_str("OLLAMA_KEEP_ALIVE", "5m"),
+        enable_llm_summary=_env_bool("ENABLE_LLM_SUMMARY", True),
     )
 
 

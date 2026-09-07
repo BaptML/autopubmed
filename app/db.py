@@ -69,6 +69,9 @@ _ADDED_COLUMNS: tuple[tuple[str, str, str], ...] = (
     ("articles", "pages", "TEXT"),
     ("queries", "last_visited_at", "TEXT"),
     ("queries", "previous_visit_at", "TEXT"),
+    ("articles", "summary_fr", "TEXT"),
+    ("articles", "summary_model", "TEXT"),
+    ("articles", "summary_at", "TEXT"),
 )
 
 

@@ -32,6 +32,9 @@ def _rabaisser_au_schema_precedent(path: Path) -> None:
             "DROP TABLE IF EXISTS articles_fts;"
             "ALTER TABLE queries DROP COLUMN last_visited_at;"
             "ALTER TABLE queries DROP COLUMN previous_visit_at;"
+            "ALTER TABLE articles DROP COLUMN summary_fr;"
+            "ALTER TABLE articles DROP COLUMN summary_model;"
+            "ALTER TABLE articles DROP COLUMN summary_at;"
         )
 
 
@@ -70,6 +73,31 @@ def test_base_neuve_porte_les_colonnes_de_visite(tmp_path: Path) -> None:
     path = init_db(tmp_path / "neuve.db")
     with get_conn(path) as conn:
         assert {"last_visited_at", "previous_visit_at"} <= _colonnes(conn, "queries")
+
+
+def test_base_neuve_porte_les_colonnes_de_resume(tmp_path: Path) -> None:
+    path = init_db(tmp_path / "neuve.db")
+    with get_conn(path) as conn:
+        attendues = {"summary_fr", "summary_model", "summary_at"}
+        assert attendues <= _colonnes(conn, "articles")
+
+
+def test_migration_ajoute_les_colonnes_de_resume(base_peuplee: Path) -> None:
+    """Une base d'avant la fonctionnalité rattrape les trois colonnes."""
+    _rabaisser_au_schema_precedent(base_peuplee)
+    with get_conn(base_peuplee) as conn:
+        assert "summary_fr" not in _colonnes(conn, "articles")
+
+    init_db(base_peuplee)
+
+    with get_conn(base_peuplee) as conn:
+        attendues = {"summary_fr", "summary_model", "summary_at"}
+        assert attendues <= _colonnes(conn, "articles")
+        # Les articles déjà en base survivent, sans résumé.
+        row = conn.execute(
+            "SELECT summary_fr FROM articles WHERE pmid = '1'"
+        ).fetchone()
+        assert row["summary_fr"] is None
 
 
 def test_base_neuve_laisse_le_repere_vide(tmp_path: Path) -> None:

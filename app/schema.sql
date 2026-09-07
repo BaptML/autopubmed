@@ -56,7 +56,13 @@ CREATE TABLE IF NOT EXISTS articles (
     issue        TEXT,
     pages        TEXT,
     url        TEXT NOT NULL,
-    fetched_at TEXT NOT NULL
+    fetched_at TEXT NOT NULL,
+    -- Résumé français produit à la demande par le LLM local. NULL = jamais
+    -- généré. Le modèle et l'horodatage disent quoi regénérer si l'on change
+    -- de modèle. Pas de commentaire sur la dernière colonne : voir plus haut.
+    summary_fr    TEXT,
+    summary_model TEXT,
+    summary_at    TEXT
 );
 
 -- Appartenance d'un article à une requête, avec le suivi de lecture.

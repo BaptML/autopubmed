@@ -259,6 +259,29 @@ def set_abstract(conn: sqlite3.Connection, pmid: str, abstract: str | None) -> N
     conn.execute("UPDATE articles SET abstract = ? WHERE pmid = ?", (abstract, pmid))
 
 
+def get_summary_fr(
+    conn: sqlite3.Connection, pmid: str
+) -> tuple[str | None, str | None]:
+    """Résumé français en cache et le modèle qui l'a produit, sinon (None, None)."""
+    row = conn.execute(
+        "SELECT summary_fr, summary_model FROM articles WHERE pmid = ?", (pmid,)
+    ).fetchone()
+    if row is None:
+        return None, None
+    return row["summary_fr"], row["summary_model"]
+
+
+def set_summary_fr(
+    conn: sqlite3.Connection, pmid: str, summary: str, model: str
+) -> None:
+    """Met en cache le résumé français, en traçant le modèle et la date."""
+    conn.execute(
+        "UPDATE articles SET summary_fr = ?, summary_model = ?, summary_at = ? "
+        "WHERE pmid = ?",
+        (summary, model, utcnow_iso(), pmid),
+    )
+
+
 def link_article(conn: sqlite3.Connection, query_id: int, pmid: str) -> bool:
     """Rattache un article à une requête. True si c'est une nouvelle paire.
 
