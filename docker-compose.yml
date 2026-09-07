@@ -3,8 +3,15 @@ services:
     build: .
     container_name: autopubmed
     restart: unless-stopped
-    ports:
-      - "8005:8000"
+    # Réseau de l'hôte plutôt qu'un réseau de pont. Le résumé français appelle
+    # Ollama, qui tourne sur le serveur : depuis un réseau de pont,
+    # `localhost:11434` désignerait le conteneur lui-même, et joindre l'hôte
+    # obligerait à faire écouter Ollama sur tout le LAN. Ici le conteneur
+    # partage la loopback du serveur — Ollama reste privé, sans réglage.
+    # En contrepartie `ports:` ne s'applique plus : le port vient de `command`.
+    network_mode: host
+    command:
+      ["uv", "run", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8005"]
     volumes:
       - ./data:/app/data
       - ./.env:/app/.env
