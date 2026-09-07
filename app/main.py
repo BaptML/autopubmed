@@ -22,8 +22,9 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from app import citation, repo
-from app.config import PROJECT_ROOT
+from app.config import PROJECT_ROOT, settings
 from app.db import connect, init_db
+from app.llm import OllamaClient
 from app.pubmed import PubMedClient
 from app.refresh import refresh_query
 from app.scheduler import create_scheduler
@@ -91,6 +92,10 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
 templates.env.filters["date_fr"] = date_fr
 templates.env.filters["date_courte"] = date_courte
+# Le bouton de résumé n'apparaît que si la fonction est activée. On ne sonde
+# pas Ollama ici : un service démarré après l'application doit rester
+# utilisable sans redémarrer, et un service arrêté donne un message clair.
+templates.env.globals["llm_summary_enabled"] = settings.enable_llm_summary
 
 
 def get_db() -> Iterator[sqlite3.Connection]:
@@ -385,6 +390,8 @@ def _panel_row_sidebar(
     article = repo.get_article_row(conn, query_id, pmid)
     if article is None:
         raise HTTPException(status_code=404, detail="Article introuvable")
+    # Un résumé français déjà en cache s'affiche à l'ouverture, sans clic.
+    summary, summary_model = repo.get_summary_fr(conn, pmid)
     return templates.TemplateResponse(
         request,
         "_panel_row_sidebar.html",
@@ -392,6 +399,8 @@ def _panel_row_sidebar(
             "article": article,
             "abstract": abstract,
             "error": error,
+            "summary": summary,
+            "summary_model": summary_model,
             **_sidebar_context(conn),
         },
     )
@@ -637,6 +646,78 @@ async def article_panel(
     conn.commit()
     abstract, error = await _load_abstract(conn, pmid)
     return _panel_row_sidebar(request, conn, query_id, pmid, abstract, error)
+
+
+def _render_summary(
+    request: Request,
+    pmid: str,
+    *,
+    summary: str | None = None,
+    summary_model: str | None = None,
+    error: str | None = None,
+    no_abstract: bool = False,
+) -> HTMLResponse:
+    return templates.TemplateResponse(
+        request,
+        "_summary_fr.html",
+        {
+            "pmid": pmid,
+            "summary": summary,
+            "summary_model": summary_model,
+            "error": error,
+            "no_abstract": no_abstract,
+        },
+    )
+
+
+@app.post("/articles/{pmid}/summary", response_class=HTMLResponse)
+async def article_summary(
+    request: Request,
+    pmid: str,
+    regenerate: int = Form(0),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> HTMLResponse:
+    """Résumé français produit par le LLM local, mis en cache comme l'abstract.
+
+    Même modèle que le reste de l'application : on ne régénère que sur demande
+    explicite, la base répond pour tout le reste.
+    """
+    article = repo.get_article_summary(conn, pmid)
+    if article is None:
+        raise HTTPException(status_code=404, detail="Article introuvable")
+
+    if not regenerate:
+        cached, model = repo.get_summary_fr(conn, pmid)
+        if cached:
+            return _render_summary(request, pmid, summary=cached, summary_model=model)
+
+    abstract, error = await _load_abstract(conn, pmid)
+    if error is not None:
+        return _render_summary(request, pmid, error=f"PubMed n'a pas répondu : {error}")
+    if not abstract:
+        return _render_summary(request, pmid, no_abstract=True)
+
+    try:
+        async with OllamaClient() as llm:
+            generated = await llm.summarize(article.title, abstract)
+    except httpx.HTTPError as exc:
+        detail = str(exc) or exc.__class__.__name__
+        return _render_summary(
+            request,
+            pmid,
+            error=f"Le modèle local n'a pas répondu : {detail}",
+        )
+
+    if not generated.text:
+        return _render_summary(
+            request, pmid, error="Le modèle local a renvoyé une réponse vide."
+        )
+
+    repo.set_summary_fr(conn, pmid, generated.text, generated.model)
+    conn.commit()
+    return _render_summary(
+        request, pmid, summary=generated.text, summary_model=generated.model
+    )
 
 
 @app.get("/preview", response_class=HTMLResponse)

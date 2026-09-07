@@ -602,6 +602,27 @@ body.redimensionne { cursor: col-resize; user-select: none; }
 }
 .resume-paragraphe { margin: 0 0 var(--space-2); font-size: 14px; line-height: 1.62; }
 
+/* Résumé français : même trait vertical que le résumé original, mais en
+   accent secondaire pour qu'on distingue d'un coup d'œil le texte produit
+   localement du texte d'origine. */
+.encart-resume-fr {
+  max-height: 32vh;
+  overflow: auto;
+  padding-left: var(--space-4);
+  border-left: 2px dashed var(--color-accent);
+}
+.resume-fr { font-style: italic; }
+.resume-fr-pied {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: 0;
+}
+/* Les deux résumés se partagent la hauteur : sans cela, l'original garderait
+   sa pleine taille et pousserait le pied de l'encart hors de l'écran. */
+.encart:has(.encart-resume-fr) .encart-resume { max-height: calc(100vh - 620px); }
+
 .encart-pied { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .encart-pied .bouton { flex: 1 1 140px; text-decoration: none; }
 

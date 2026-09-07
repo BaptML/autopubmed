@@ -41,6 +41,18 @@
     {% include "_abstract.html" %}
   </div>
 
+  {% if llm_summary_enabled %}
+    <div class="titre-cadre">Résumé en français</div>
+    <div class="encart-resume-fr">
+      <span id="indicateur-resume-fr" class="htmx-indicator aide">
+        génération en cours, cela peut prendre une minute…
+      </span>
+      <div id="resume-fr">
+        {% with pmid = article.pmid %}{% include "_summary_fr.html" %}{% endwith %}
+      </div>
+    </div>
+  {% endif %}
+
   <div class="encart-pied">
     <button class="bouton principal"
             hx-post="/articles/{{ article.pmid }}/read"

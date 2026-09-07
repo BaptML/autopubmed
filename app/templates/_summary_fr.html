@@ -1,0 +1,26 @@
+{# Résumé français : contenu de #resume-fr. Porte aussi son propre bouton,
+   pour que l'action proposée corresponde toujours à l'état affiché. #}
+{% if error %}
+  <p class="apercu-erreur">{{ error }}</p>
+{% endif %}
+
+{% if summary %}
+  <p class="resume-paragraphe resume-fr">{{ summary }}</p>
+{% endif %}
+
+{% if no_abstract %}
+  <p class="aide">Aucun résumé original à synthétiser.</p>
+{% else %}
+  <p class="resume-fr-pied">
+    <button class="bouton mono"
+            hx-post="/articles/{{ pmid }}/summary"
+            hx-vals='{"regenerate": {{ 1 if summary else 0 }}}'
+            hx-target="#resume-fr" hx-swap="innerHTML"
+            hx-indicator="#indicateur-resume-fr" hx-disabled-elt="this">
+      {{ "Regénérer" if summary else "Résumer en français" }}
+    </button>
+    {% if summary %}
+      <span class="aide">généré localement par {{ summary_model }}</span>
+    {% endif %}
+  </p>
+{% endif %}

@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 
 from app import repo
 from app.db import connect, get_conn, init_db
+from app.llm import Summary
 from app.main import app, date_fr, get_db
 from app.models import ArticleSummary
 
@@ -729,6 +730,143 @@ class FakePubMedClient:
             warnings=["terme ignoré : blabla"],
             errors=[],
         )
+
+
+class FakeOllamaClient:
+    """Simule OllamaClient : aucun modèle local n'est sollicité par les tests."""
+
+    def __init__(self, texte: str = "Un résumé français.", en_panne: bool = False):
+        self._texte = texte
+        self._en_panne = en_panne
+        self.calls: list[tuple[str, str]] = []
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *_exc):
+        return None
+
+    async def summarize(self, title: str, abstract: str):
+        self.calls.append((title, abstract))
+        if self._en_panne:
+            raise httpx.ConnectError("ollama injoignable")
+        return Summary(
+            text=self._texte,
+            model="modele-test",
+            eval_count=10,
+            eval_seconds=1.0,
+            load_seconds=0.0,
+            truncated=False,
+        )
+
+
+def _brancher_llm(monkeypatch, llm: FakeOllamaClient) -> FakeOllamaClient:
+    monkeypatch.setattr("app.main.OllamaClient", lambda: llm)
+    return llm
+
+
+@pytest.fixture
+def avec_abstract(client, monkeypatch):
+    """Pose un résumé original en cache : le LLM a toujours de quoi travailler."""
+    with get_conn(client.db_path) as conn:
+        repo.set_abstract(conn, "40000001", "BACKGROUND: semaglutide. RESULTS: ok.")
+    return client
+
+
+def test_le_premier_clic_genere_et_met_en_cache(avec_abstract, monkeypatch) -> None:
+    llm = _brancher_llm(monkeypatch, FakeOllamaClient())
+
+    reponse = avec_abstract.post("/articles/40000001/summary", data={"regenerate": 0})
+
+    assert reponse.status_code == 200
+    assert "Un résumé français." in reponse.text
+    assert "modele-test" in reponse.text
+    assert len(llm.calls) == 1
+    with get_conn(avec_abstract.db_path) as conn:
+        texte, modele = repo.get_summary_fr(conn, "40000001")
+    assert texte == "Un résumé français."
+    assert modele == "modele-test"
+
+
+def test_le_second_clic_relit_la_base(avec_abstract, monkeypatch) -> None:
+    """Modèle cache : sans demande explicite, on ne repaie pas la génération."""
+    llm = _brancher_llm(monkeypatch, FakeOllamaClient())
+    avec_abstract.post("/articles/40000001/summary", data={"regenerate": 0})
+
+    reponse = avec_abstract.post("/articles/40000001/summary", data={"regenerate": 0})
+
+    assert "Un résumé français." in reponse.text
+    assert len(llm.calls) == 1  # aucun appel supplémentaire
+
+
+def test_regenerer_rappelle_le_modele(avec_abstract, monkeypatch) -> None:
+    _brancher_llm(monkeypatch, FakeOllamaClient())
+    avec_abstract.post("/articles/40000001/summary", data={"regenerate": 0})
+
+    llm = _brancher_llm(monkeypatch, FakeOllamaClient(texte="Une autre version."))
+    reponse = avec_abstract.post("/articles/40000001/summary", data={"regenerate": 1})
+
+    assert "Une autre version." in reponse.text
+    assert len(llm.calls) == 1
+    with get_conn(avec_abstract.db_path) as conn:
+        assert repo.get_summary_fr(conn, "40000001")[0] == "Une autre version."
+
+
+def test_un_article_sans_abstract_n_appelle_pas_le_modele(client, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.main.PubMedClient", lambda: FakePubMedClient(abstract=None)
+    )
+    llm = _brancher_llm(monkeypatch, FakeOllamaClient())
+
+    reponse = client.post("/articles/40000001/summary", data={"regenerate": 0})
+
+    assert reponse.status_code == 200
+    assert "Aucun résumé original à synthétiser" in reponse.text
+    assert llm.calls == []
+
+
+def test_ollama_en_panne_affiche_un_message_et_n_ecrit_rien(
+    avec_abstract, monkeypatch
+) -> None:
+    _brancher_llm(monkeypatch, FakeOllamaClient(en_panne=True))
+
+    reponse = avec_abstract.post("/articles/40000001/summary", data={"regenerate": 0})
+
+    # 200 et non 500 : HTMX doit pouvoir afficher le fragment d'erreur.
+    assert reponse.status_code == 200
+    assert "Le modèle local n&#39;a pas répondu" in reponse.text
+    assert "ollama injoignable" in reponse.text
+    with get_conn(avec_abstract.db_path) as conn:
+        assert repo.get_summary_fr(conn, "40000001")[0] is None
+
+
+def test_un_article_inconnu_donne_404(client, monkeypatch) -> None:
+    _brancher_llm(monkeypatch, FakeOllamaClient())
+    reponse = client.post("/articles/99999999/summary", data={"regenerate": 0})
+    assert reponse.status_code == 404
+
+
+def test_l_encart_propose_le_bouton_de_resume(client, monkeypatch) -> None:
+    monkeypatch.setattr("app.main.PubMedClient", lambda: FakePubMedClient())
+
+    encart = client.get(f"/articles/40000001/panel?query_id={client.query_id}")
+
+    assert 'hx-post="/articles/40000001/summary"' in encart.text
+    assert "Résumer en français" in encart.text
+
+
+def test_l_encart_reaffiche_un_resume_deja_en_cache(avec_abstract, monkeypatch) -> None:
+    """Rouvrir un article ne doit rien regénérer."""
+    monkeypatch.setattr("app.main.PubMedClient", lambda: FakePubMedClient())
+    llm = _brancher_llm(monkeypatch, FakeOllamaClient())
+    avec_abstract.post("/articles/40000001/summary", data={"regenerate": 0})
+
+    url = f"/articles/40000001/panel?query_id={avec_abstract.query_id}"
+    encart = avec_abstract.get(url)
+
+    assert "Un résumé français." in encart.text
+    assert "Regénérer" in encart.text
+    assert len(llm.calls) == 1
 
 
 @pytest.mark.parametrize(
