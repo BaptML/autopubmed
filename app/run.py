@@ -75,7 +75,7 @@ def main() -> None:
     if _contact_problems():
         print("Les appels sortants doivent porter un contact réel — corrige .env.\n")
 
-    print(f"Veille PubMed démarre sur {url}")
+    print(f"AutoPubMed démarre sur {url}")
     print("Ferme cette fenêtre ou fais Ctrl+C pour arrêter le serveur.\n")
 
     server = uvicorn.Server(

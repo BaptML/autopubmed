@@ -71,7 +71,7 @@ def _load() -> Settings:
 
     return Settings(
         ncbi_api_key=os.getenv("NCBI_API_KEY", "").strip() or None,
-        ncbi_tool=os.getenv("NCBI_TOOL", "pubmed-veille").strip(),
+        ncbi_tool=os.getenv("NCBI_TOOL", "autopubmed").strip(),
         ncbi_email=os.getenv("NCBI_EMAIL", "").strip(),
         openalex_mailto=os.getenv("OPENALEX_MAILTO", "").strip(),
         db_path=db_path,

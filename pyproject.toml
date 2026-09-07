@@ -1,7 +1,7 @@
 [project]
-name = "pubmed-veille"
+name = "autopubmed"
 version = "0.1.0"
-description = "Lecteur de veille bibliographique médicale, local et auto-hébergé"
+description = "AutoPubMed — lecteur de veille bibliographique médicale, local et auto-hébergé"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -13,6 +13,10 @@ dependencies = [
     # Exigé par FastAPI pour lire les formulaires HTML (écran de création).
     "python-multipart>=0.0.20",
 ]
+
+[project.scripts]
+# `uv run autopubmed` : démarre le serveur et ouvre le navigateur.
+autopubmed = "app.run:main"
 
 [dependency-groups]
 dev = [

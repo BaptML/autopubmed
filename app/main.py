@@ -85,7 +85,7 @@ async def lifespan(app_: FastAPI):
             scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Veille PubMed", lifespan=lifespan)
+app = FastAPI(title="AutoPubMed", lifespan=lifespan)
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 templates = Jinja2Templates(directory=TEMPLATES_DIR)

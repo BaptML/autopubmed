@@ -1,4 +1,4 @@
-# PubMed Veille — Cahier des charges (spec.md)
+# AutoPubMed — Cahier des charges (spec.md)
 
 > Ce fichier est la **source de vérité** du projet. Il décrit *quoi* construire.
 > Les règles de travail et les interdits sont dans `CLAUDE.md`.

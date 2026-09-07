@@ -1,10 +1,10 @@
 @echo off
-REM Lanceur double-clic de Veille PubMed. Messages sans accent : la console
+REM Lanceur double-clic d'AutoPubMed. Messages sans accent : la console
 REM batch n'est pas fiable en UTF-8 avant le chcp ci-dessous.
 chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
-title Veille PubMed
+title AutoPubMed
 set "PYTHONUTF8=1"
 
 where uv >nul 2>&1
@@ -36,7 +36,7 @@ if errorlevel 1 (
   exit /b 1
 )
 
-uv run python -m app.run
+uv run autopubmed
 
 REM Le serveur s'est arrete : garder la fenetre ouverte pour lire l'erreur.
 echo.
