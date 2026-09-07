@@ -78,6 +78,7 @@ def test_la_charge_desactive_le_raisonnement_et_le_flux() -> None:
     assert charge["think"] is False
     assert charge["stream"] is False
     assert charge["model"] == settings.ollama_model
+    assert charge["options"]["num_ctx"] == settings.ollama_num_ctx
     assert charge["messages"][0]["role"] == "system"
     assert "français" in charge["messages"][0]["content"]
 

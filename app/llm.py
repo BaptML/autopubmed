@@ -115,7 +115,7 @@ class OllamaClient:
             "keep_alive": settings.ollama_keep_alive,
             "options": {
                 "temperature": 0.2,
-                "num_ctx": 4096,
+                "num_ctx": settings.ollama_num_ctx,
                 "num_predict": 700,
             },
             "messages": [
