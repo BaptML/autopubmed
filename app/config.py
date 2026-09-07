@@ -97,7 +97,7 @@ def _load() -> Settings:
         ),
         ollama_model=_env_str("OLLAMA_MODEL", "qwen3.5:4b"),
         ollama_timeout_seconds=_env_int("OLLAMA_TIMEOUT_SECONDS", 180),
-        ollama_num_ctx=_env_int("OLLAMA_NUM_CTX", 4096),
+        ollama_num_ctx=_env_int("OLLAMA_NUM_CTX", 3072),
         ollama_keep_alive=_env_str("OLLAMA_KEEP_ALIVE", "5m"),
         enable_llm_summary=_env_bool("ENABLE_LLM_SUMMARY", True),
     )
