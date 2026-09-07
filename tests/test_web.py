@@ -30,7 +30,9 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
             pubmed_query='"N Engl J Med"[ta]',
             quartile_min=1,
         )
-        repo.create_query(conn, name="Requête vide", folder="Brouillons", pubmed_query="zzz")
+        repo.create_query(
+            conn, name="Requête vide", folder="Brouillons", pubmed_query="zzz"
+        )
         repo.upsert_article(
             conn,
             ArticleSummary(
@@ -57,11 +59,15 @@ def client(tmp_path: Path) -> Iterator[TestClient]:
             conn.close()
 
     app.dependency_overrides[get_db] = override
+    # Le lifespan initialise la base : sans ce détournement, il migrerait celle
+    # de production à chaque exécution de la suite.
+    app.state.db_path = db_path
     with TestClient(app) as test_client:
         test_client.query_id = query_id  # type: ignore[attr-defined]
         test_client.db_path = db_path  # type: ignore[attr-defined]
         yield test_client
     app.dependency_overrides.clear()
+    del app.state.db_path
 
 
 def test_page_d_accueil_est_une_coquille(client: TestClient) -> None:
@@ -208,7 +214,9 @@ def test_creation_conserve_la_chaine_pubmed_a_l_identique(client: TestClient) ->
     assert response.status_code == 200
 
     with get_conn(client.db_path) as conn:
-        created = [q for q in repo.list_queries(conn) if q.name == "Nouvelle veille"][0]
+        created = next(
+            q for q in repo.list_queries(conn) if q.name == "Nouvelle veille"
+        )
     assert created.pubmed_query == brute.strip()  # seuls les espaces de bord sautent
     assert created.quartile_min == 2
     assert created.citedness_min is None  # champ vide = pas de filtre, pas zéro
@@ -217,8 +225,14 @@ def test_creation_conserve_la_chaine_pubmed_a_l_identique(client: TestClient) ->
 def test_creation_rafraichit_la_barre_laterale_hors_bande(client: TestClient) -> None:
     response = client.post(
         "/queries/new",
-        data={"name": "Veille B", "pubmed_query": "x[tiab]", "folder": "Autre",
-              "quartile_min": "", "citedness_min": "", "sort": "date_desc"},
+        data={
+            "name": "Veille B",
+            "pubmed_query": "x[tiab]",
+            "folder": "Autre",
+            "quartile_min": "",
+            "citedness_min": "",
+            "sort": "date_desc",
+        },
     )
     # Un seul aller-retour met à jour le panneau et la colonne de gauche.
     assert 'hx-swap-oob="innerHTML:#barre-laterale"' in response.text
@@ -229,9 +243,14 @@ def test_edition_met_a_jour_sans_toucher_aux_articles(client: TestClient) -> Non
     query_id = client.query_id
     response = client.post(
         f"/queries/{query_id}/edit",
-        data={"name": "Renommée", "pubmed_query": '"N Engl J Med"[ta]',
-              "folder": "Références", "quartile_min": "", "citedness_min": "3,5",
-              "sort": "journal"},
+        data={
+            "name": "Renommée",
+            "pubmed_query": '"N Engl J Med"[ta]',
+            "folder": "Références",
+            "quartile_min": "",
+            "citedness_min": "3,5",
+            "sort": "journal",
+        },
     )
     assert response.status_code == 200
     assert "Semaglutide in Heart Failure" in response.text  # article conservé
@@ -244,7 +263,9 @@ def test_edition_met_a_jour_sans_toucher_aux_articles(client: TestClient) -> Non
     assert query.sort == "journal"
 
 
-def test_suppression_retire_la_requete_et_garde_les_articles(client: TestClient) -> None:
+def test_suppression_retire_la_requete_et_garde_les_articles(
+    client: TestClient,
+) -> None:
     response = client.delete(f"/queries/{client.query_id}")
     assert response.status_code == 200
     assert "Requête supprimée" in response.text
@@ -284,28 +305,180 @@ def test_marquage_lu_bascule_et_met_a_jour_le_compteur(client: TestClient) -> No
     assert 'class="article non-lu"' in retour.text
 
 
-def test_article_nouveau_depuis_la_derniere_ouverture(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    # L'article a été vu pour la première fois après l'ouverture précédente.
-    monkeypatch.setattr(app.state, "new_since", "2020-01-01T00:00:00+00:00")
-    assert "nouveau" in client.get(f"/queries/{client.query_id}/articles").text
-
-    # Rien de nouveau si l'application a déjà été ouverte depuis.
-    monkeypatch.setattr(app.state, "new_since", "2099-01-01T00:00:00+00:00")
-    assert 'class="badge nouveau"' not in client.get(
-        f"/queries/{client.query_id}/articles"
-    ).text
-
-
-def test_premiere_ouverture_ne_signale_aucun_nouveau(client: TestClient) -> None:
-    # Au tout premier lancement il n'y a pas d'ouverture précédente : rien n'est
-    # signalé comme nouveau, et l'ouverture est enregistrée pour la prochaine fois.
-    assert 'class="badge nouveau"' not in client.get(
-        f"/queries/{client.query_id}/articles"
-    ).text
+def _remettre_a_neuf(client: TestClient) -> None:
+    """Requête ancienne et jamais ouverte : son article est donc à découvrir."""
     with get_conn(client.db_path) as conn:
-        assert repo.get_app_state(conn, repo.LAST_OPENED_KEY) is not None
+        conn.execute(
+            "UPDATE queries SET created_at = ?, last_visited_at = NULL, "
+            "previous_visit_at = NULL",
+            ("2020-01-01T00:00:00+00:00",),
+        )
+
+
+def _repere_ancien(client: TestClient) -> None:
+    """Requête visitée jadis : son article compte pour une nouveauté.
+
+    Le flux ne pose pas de repère lui-même — le consulter ne consomme rien —
+    il faut donc qu'une visite ait déjà eu lieu.
+    """
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "UPDATE queries SET created_at = ?, last_visited_at = ?, "
+            "previous_visit_at = ?",
+            ("2020-01-01T00:00:00+00:00",) * 3,
+        )
+
+
+def test_le_badge_nouveau_suit_le_repere_de_visite(client: TestClient) -> None:
+    liste = f"/queries/{client.query_id}/articles"
+
+    # Repère antérieur à l'arrivée de l'article : il est signalé.
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "UPDATE queries SET last_visited_at = ?, previous_visit_at = ?",
+            ("2020-01-01T00:00:00+00:00", "2020-01-01T00:00:00+00:00"),
+        )
+    assert 'class="badge nouveau"' in client.get(liste).text
+
+    # Repère postérieur : plus rien de nouveau.
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "UPDATE queries SET last_visited_at = ?, previous_visit_at = ?",
+            ("2099-01-01T00:00:00+00:00", "2099-01-01T00:00:00+00:00"),
+        )
+    assert 'class="badge nouveau"' not in client.get(liste).text
+
+
+def test_recharger_la_liste_n_efface_pas_les_badges(client: TestClient) -> None:
+    """Le repère se décale à la session suivante, pas à chaque affichage."""
+    _remettre_a_neuf(client)
+    liste = f"/queries/{client.query_id}/articles"
+    assert 'class="badge nouveau"' in client.get(liste).text
+    assert 'class="badge nouveau"' in client.get(liste).text
+
+
+def test_premiere_ouverture_cale_le_repere_sur_la_creation(client: TestClient) -> None:
+    _remettre_a_neuf(client)
+    client.get(f"/queries/{client.query_id}/articles")
+    with get_conn(client.db_path) as conn:
+        row = conn.execute(
+            "SELECT created_at, last_visited_at, previous_visit_at "
+            "FROM queries WHERE id = ?",
+            (client.query_id,),
+        ).fetchone()
+    assert row["previous_visit_at"] == row["created_at"]
+    assert row["last_visited_at"] is not None
+
+
+def test_le_repere_survit_au_redemarrage(client: TestClient) -> None:
+    """Il vit en base et non en mémoire.
+
+    C'est ce qui corrige le défaut d'origine : sous `restart: unless-stopped`,
+    le serveur ne redémarrait jamais et le signalement restait figé.
+    """
+    _remettre_a_neuf(client)
+    liste = f"/queries/{client.query_id}/articles"
+    assert 'class="badge nouveau"' in client.get(liste).text
+
+    with TestClient(app) as apres_redemarrage:  # remonte l'application
+        assert 'class="badge nouveau"' in apres_redemarrage.get(liste).text
+
+
+# --- Flux des nouveautés --------------------------------------------------
+
+
+def test_le_flux_liste_les_nouveautes_avec_leur_provenance(client: TestClient) -> None:
+    _repere_ancien(client)
+    page = client.get("/new").text
+    assert "Semaglutide in Heart Failure" in page
+    assert "NEJM / essais randomisés" in page
+
+
+def test_le_flux_est_vide_sans_repere(client: TestClient) -> None:
+    """Requête jamais ouverte : rien n'est présumé vu, donc rien n'est signalé."""
+    with get_conn(client.db_path) as conn:
+        conn.execute("UPDATE queries SET previous_visit_at = NULL")
+    assert "Rien de neuf depuis ta dernière visite" in client.get("/new").text
+
+
+def test_consulter_le_flux_ne_le_vide_pas(client: TestClient) -> None:
+    """Le point du choix : l'ouvrir ne doit pas effacer ce qu'on vient d'y voir."""
+    _repere_ancien(client)
+    assert "Semaglutide in Heart Failure" in client.get("/new").text
+    assert "Semaglutide in Heart Failure" in client.get("/new").text
+
+
+def test_ouvrir_la_requete_retire_ses_articles_du_flux(client: TestClient) -> None:
+    """L'article arrive entre deux sessions : signalé à la première, plus après."""
+    _repere_ancien(client)
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "UPDATE query_articles SET first_seen = ?", ("2020-03-01T00:00:00+00:00",)
+        )
+    assert "Semaglutide in Heart Failure" in client.get("/new").text
+
+    # La session où l'utilisateur le découvre, postérieure à son arrivée.
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "UPDATE queries SET last_visited_at = ?", ("2020-06-01T00:00:00+00:00",)
+        )
+    client.get(f"/queries/{client.query_id}/articles")  # la session suivante
+    assert "Rien de neuf depuis ta dernière visite" in client.get("/new").text
+
+
+def test_vider_le_flux_remet_la_barre_laterale_a_jour(client: TestClient) -> None:
+    _repere_ancien(client)
+    assert "1 à voir" in client.get("/queries").text
+
+    retour = client.post("/new/dismiss")
+    assert "Rien de neuf depuis ta dernière visite" in retour.text
+    assert 'hx-swap-oob="innerHTML:#barre-laterale"' in retour.text
+
+    barre = client.get("/queries").text
+    assert "1 à voir" not in barre
+    # « Vu » n'est pas « lu » : le compteur de non-lus de la requête ne bouge pas.
+    assert "1 nouv." in barre
+
+
+def test_le_flux_ouvre_l_encart_de_lecture(client: TestClient) -> None:
+    """La ligne garde son contexte de requête : elle reste cliquable."""
+    _repere_ancien(client)
+    page = client.get("/new").text
+    assert f"/articles/40000001/panel?query_id={client.query_id}" in page
+
+
+# --- Recherche locale -----------------------------------------------------
+
+
+def test_la_barre_laterale_porte_le_champ_de_recherche(client: TestClient) -> None:
+    barre = client.get("/queries").text
+    assert 'hx-get="/search"' in barre
+    # Anti-rebond, comme l'aperçu live : pas d'appel à chaque frappe.
+    assert 'hx-trigger="keyup changed delay:400ms, search"' in barre
+
+
+def test_la_recherche_trouve_un_article_du_cache(client: TestClient) -> None:
+    page = client.get("/search?q=semaglutide").text
+    assert "Semaglutide in Heart Failure" in page
+
+
+def test_la_recherche_sans_saisie_invite_a_taper(client: TestClient) -> None:
+    assert "Tape quelques mots" in client.get("/search?q=").text
+
+
+def test_la_recherche_sans_resultat_le_dit(client: TestClient) -> None:
+    page = client.get("/search?q=cardiologie").text
+    assert "Aucun article du cache ne répond" in page
+
+
+def test_la_recherche_ouvre_l_encart_de_lecture(client: TestClient) -> None:
+    page = client.get("/search?q=semaglutide").text
+    assert f"/articles/40000001/panel?query_id={client.query_id}" in page
+
+
+def test_une_saisie_hostile_ne_casse_pas_la_recherche(client: TestClient) -> None:
+    for saisie in ('"', "AND", "*", "((", "O'Brien"):
+        assert client.get("/search", params={"q": saisie}).status_code == 200
 
 
 def test_resume_efetch_a_la_demande_puis_cache(
@@ -518,7 +691,8 @@ class FakePubMedClient:
     """Simule PubMedClient pour les routes qui appellent PubMed."""
 
     def __init__(
-        self, abstract: str | None = "OBJECTIF : Évaluer le sémaglutide.\n\n"
+        self,
+        abstract: str | None = "OBJECTIF : Évaluer le sémaglutide.\n\n"
         "RÉSULTATS : Amélioration nette.",
         summaries: list | None = None,
         en_panne: bool = False,

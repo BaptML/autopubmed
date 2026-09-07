@@ -1,4 +1,7 @@
-# Handoff : Journal PubMed quotidien (AUTO PUBMED)
+# Handoff design : AutoPubMed
+
+> Référence de design historique. Ces écrans ont été implémentés à la phase 7
+> (socle visuel Industry) ; ce dossier reste comme trace de l'intention.
 
 ## Overview
 Application web personnelle de veille bibliographique. L'utilisateur enregistre des requêtes PubMed avancées ; chaque requête a une page qui affiche « l'état du jour » : les articles indexés qui y répondent, groupés par jour, avec un encart de lecture pour prévisualiser le résumé. Usage mono-utilisateur, ~10 à 40 articles par jour, interface en français, contenu des articles en anglais (texte source PubMed).
@@ -6,7 +9,7 @@ Application web personnelle de veille bibliographique. L'utilisateur enregistre 
 ## About the Design Files
 Les fichiers de ce dossier sont des **références de design réalisées en HTML** — un prototype qui montre l'apparence et le comportement attendus, pas du code de production à copier tel quel. Le travail consiste à **recréer ces écrans dans l'environnement existant du projet cible** (React, Vue, Svelte, SwiftUI…) avec ses conventions et ses bibliothèques. Si aucun environnement n'existe encore, choisir le framework le plus adapté (React + Vite convient bien à cette interface) et y implémenter les écrans.
 
-`Veille PubMed.dc.html` est un composant à template + classe de logique ; les données d'articles y sont en dur (`ARTICLES`, `QUERIES`) et doivent être remplacées par l'API E-utilities de PubMed (voir « Data »).
+`prototype.dc.html` est un composant à template + classe de logique ; les données d'articles y sont en dur (`ARTICLES`, `QUERIES`) et doivent être remplacées par l'API E-utilities de PubMed (voir « Data »).
 
 ## Fidelity
 **Hi-fi.** Couleurs, typographie, échelle d'espacement et interactions sont définitives. Recréer l'UI au pixel en réutilisant les tokens fournis (`industry.css`).
@@ -115,5 +118,5 @@ Tous les tokens de couleur, d'espacement, de rayon et d'ombre viennent de `indus
 Aucune image. Icônes prévues : **Lucide**, `stroke-width: 1.5` (le prototype utilise du texte `⟨⟨`, `⟩⟩`, `×` en attendant). Polices : Spectral, IBM Plex Sans, IBM Plex Mono (Google Fonts).
 
 ## Files
-- `Veille PubMed.dc.html` — le prototype complet (template + logique + données d'exemple). Les surcharges de police sont dans le bloc `<style>` en tête ; le reste du style est en ligne.
+- `prototype.dc.html` — le prototype complet (template + logique + données d'exemple). Les surcharges de police sont dans le bloc `<style>` en tête ; le reste du style est en ligne.
 - `industry.css` — le design system « Industry » : tokens (`:root`) et classes de composants `.blueprint` / `.corner`, `.btn`, `.tag`, `.input`, `.field`, `.card`, `.table`, `.dialog`. Source de vérité pour les valeurs.

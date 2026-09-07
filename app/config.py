@@ -44,6 +44,10 @@ class Settings:
     esearch_retmax: int
     enable_scheduler: bool
     scheduler_interval_minutes: int
+    # Durée au-delà de laquelle rouvrir une requête compte pour une nouvelle
+    # session, et décale le repère du badge « nouveau ». En deçà, recharger la
+    # liste n'efface pas les badges qu'on est en train de regarder.
+    visit_session_gap_minutes: int
 
     @property
     def ncbi_requests_per_second(self) -> int:
@@ -67,7 +71,7 @@ def _load() -> Settings:
 
     return Settings(
         ncbi_api_key=os.getenv("NCBI_API_KEY", "").strip() or None,
-        ncbi_tool=os.getenv("NCBI_TOOL", "pubmed-veille").strip(),
+        ncbi_tool=os.getenv("NCBI_TOOL", "autopubmed").strip(),
         ncbi_email=os.getenv("NCBI_EMAIL", "").strip(),
         openalex_mailto=os.getenv("OPENALEX_MAILTO", "").strip(),
         db_path=db_path,
@@ -75,6 +79,7 @@ def _load() -> Settings:
         esearch_retmax=_env_int("ESEARCH_RETMAX", 200),
         enable_scheduler=_env_bool("ENABLE_SCHEDULER", False),
         scheduler_interval_minutes=_env_int("SCHEDULER_INTERVAL_MINUTES", 360),
+        visit_session_gap_minutes=_env_int("VISIT_SESSION_GAP_MINUTES", 30),
     )
 
 

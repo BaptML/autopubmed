@@ -17,6 +17,7 @@ import asyncio
 import sqlite3
 import sys
 from dataclasses import dataclass, field
+from datetime import date
 
 import httpx
 
@@ -40,6 +41,7 @@ class RefreshReport:
     kept: int = 0
     rejected: int = 0
     too_old: int = 0  # écartés par l'ancienneté maximale de la requête
+    in_future: int = 0  # écartés car datés après aujourd'hui (coquille / à paraître)
     new_links: int = 0  # paires (requête, article) inédites -> non lus
     translation: str = ""
     warnings: list[str] = field(default_factory=list)
@@ -54,6 +56,7 @@ class RefreshReport:
             f"Sans qualité connue: {self.unmatched_quality}",
             f"Retenus / écartés  : {self.kept} / {self.rejected}",
             f"Trop anciens       : {self.too_old}",
+            f"Dans le futur      : {self.in_future}",
             f"Nouveaux (non lus) : {self.new_links}",
         ]
         for warning in self.warnings:
@@ -73,6 +76,18 @@ def _too_old(pub_date: str | None, cutoff: str | None) -> bool:
     if cutoff is None or not pub_date:
         return False
     return (pub_date + "-12-31")[:10] < cutoff
+
+
+def _in_future(pub_date: str | None, today: str) -> bool:
+    """Article daté après aujourd'hui — numéro « à paraître » ou coquille PubMed.
+
+    Miroir de `_too_old` sur l'autre borne : la date partielle est complétée
+    vers la fin de période (option stricte, comme `repo._NOT_FUTURE_CLAUSE`), et
+    une date absente ne suffit pas à écarter l'article.
+    """
+    if not pub_date:
+        return False
+    return (pub_date + "-12-31")[:10] > today
 
 
 def _best_quality(
@@ -139,9 +154,7 @@ async def refresh_query(
     already_known = repo.known_pmids(conn, search.pmids)
     to_refill = repo.pmids_missing_doi(conn, sorted(already_known))
     to_fetch = [
-        pmid
-        for pmid in search.pmids
-        if pmid not in already_known or pmid in to_refill
+        pmid for pmid in search.pmids if pmid not in already_known or pmid in to_refill
     ]
     summaries = await pubmed.esummary(to_fetch) if to_fetch else []
     report.newly_summarized = len(summaries)
@@ -171,9 +184,13 @@ async def refresh_query(
 
     # 4. Filtrer puis 5. persister.
     cutoff = repo.cutoff_date(query.max_age_years)
+    today = date.today().isoformat()
     for summary in all_summaries:
         if _too_old(summary.pub_date, cutoff):
             report.too_old += 1
+            continue
+        if _in_future(summary.pub_date, today):
+            report.in_future += 1
             continue
         quality = _best_quality(summary, quality_map)
         if quality is None:
@@ -233,7 +250,9 @@ def _print_articles(conn: sqlite3.Connection, query_id: int, limit: int) -> None
         quartile = f"Q{row['quartile']}" if row["quartile"] else "non classée"
         citedness = f" · citedness {row['citedness']:.1f}" if row["citedness"] else ""
         flag = " " if row["read"] else "•"
-        print(f"{flag} [{row['pub_date'] or '?'}] {row['journal']} ({quartile}{citedness})")
+        print(
+            f"{flag} [{row['pub_date'] or '?'}] {row['journal']} ({quartile}{citedness})"
+        )
         print(f"    {row['title'][:110]}")
 
 
@@ -244,8 +263,12 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Rafraîchir une requête PubMed")
     parser.add_argument("--list", action="store_true", help="lister les requêtes")
     parser.add_argument("--id", type=int, help="rafraîchir la requête d'identifiant N")
-    parser.add_argument("--all", action="store_true", help="rafraîchir toutes les requêtes")
-    parser.add_argument("--new", metavar="CHAINE", help="créer une requête puis la rafraîchir")
+    parser.add_argument(
+        "--all", action="store_true", help="rafraîchir toutes les requêtes"
+    )
+    parser.add_argument(
+        "--new", metavar="CHAINE", help="créer une requête puis la rafraîchir"
+    )
     parser.add_argument("--name", help="libellé de la requête créée")
     parser.add_argument("--folder", default="Sans dossier")
     parser.add_argument("--quartile-min", type=int, choices=[1, 2, 3, 4])

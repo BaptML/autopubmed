@@ -212,6 +212,31 @@ body.redimensionne { cursor: col-resize; user-select: none; }
   margin: 0 var(--gutter) var(--space-3);
 }
 
+/* Recherche dans le cache, en tête de barre latérale. Reprend l'habillage des
+   champs du formulaire pour n'introduire aucun dialecte visuel. */
+.champ-recherche {
+  padding: var(--space-3) var(--gutter);
+  border-bottom: 1px solid var(--color-divider);
+}
+.champ-recherche input {
+  width: 100%;
+  min-height: 32px;
+  padding: 5px 9px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--color-text);
+  caret-color: var(--color-accent);
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+}
+.champ-recherche input:hover {
+  border-color: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
+.champ-recherche input:focus-visible {
+  border-color: var(--color-accent);
+  outline-offset: 0;
+}
+
 .lien-requete {
   display: block;
   width: 100%;
@@ -402,6 +427,31 @@ body.redimensionne { cursor: col-resize; user-select: none; }
 }
 .etiquette-liste { font-size: 9px; color: color-mix(in srgb, var(--color-text) 50%, transparent); }
 .tout-lu:disabled { cursor: not-allowed; }  /* pas « progress » : rien n'est en cours */
+
+/* Page suivante d'une liste. Pleine largeur : c'est la fin de la liste, pas
+   une action de barre — on le trouve en descendant, sans le chercher. */
+.charger-suite {
+  display: block;
+  width: 100%;
+  padding: var(--space-4);
+  border: none;
+  border-bottom: 1px solid var(--rule-list);
+  color: var(--color-accent);
+}
+.charger-suite:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 7%, transparent);
+}
+.charger-suite:disabled { cursor: progress; }  /* un chargement est en cours */
+
+/* Provenance dans le flux des nouveautés : l'article y perd le contexte de sa
+   requête, ce sur-titre le lui rend. Collé à la ligne qui suit. */
+.provenance {
+  padding: var(--space-4) var(--space-4) 0;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--color-text) 45%, transparent);
+}
 
 .article {
   padding: var(--space-4);

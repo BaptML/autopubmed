@@ -29,7 +29,7 @@ class OpenAlexClient:
         self._owns_client = client is None
         self._limiter = RateLimiter(REQUESTS_PER_SECOND)
 
-    async def __aenter__(self) -> "OpenAlexClient":
+    async def __aenter__(self) -> OpenAlexClient:
         return self
 
     async def __aexit__(self, *_exc: object) -> None:

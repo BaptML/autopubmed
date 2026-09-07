@@ -116,9 +116,7 @@ def import_csv(csv_path: Path, conn: sqlite3.Connection) -> ImportReport:
         title = (row.get("Title") or "").strip()
 
         # Une entrée par ISSN : PubMed peut renvoyer l'un ou l'autre.
-        conn.executemany(
-            _UPSERT, [(issn, title, quartile, sjr, now) for issn in issns]
-        )
+        conn.executemany(_UPSERT, [(issn, title, quartile, sjr, now) for issn in issns])
         issn_rows_written += len(issns)
 
     return ImportReport(rows_read, rows_without_issn, issn_rows_written, unranked)

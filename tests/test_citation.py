@@ -98,11 +98,17 @@ def test_bibtex_nom_collectif_reste_entier() -> None:
 @pytest.mark.parametrize(
     ("article", "attendu"),
     [
-        ({"authors": "Doe J", "title": "A study of X", "pub_date": "2026"}, "doe2026study"),
+        (
+            {"authors": "Doe J", "title": "A study of X", "pub_date": "2026"},
+            "doe2026study",
+        ),
         ({"authors": "", "title": "Sans auteur", "pub_date": "2026"}, "anon2026sans"),
         ({"authors": "Doe J", "title": "", "pub_date": ""}, "doesdarticle"),
         # Les accents sont translittérés : une clé BibTeX reste en ASCII.
-        ({"authors": "Müller K", "title": "Étude", "pub_date": "2026"}, "muller2026etude"),
+        (
+            {"authors": "Müller K", "title": "Étude", "pub_date": "2026"},
+            "muller2026etude",
+        ),
     ],
 )
 def test_bibtex_key(article: dict, attendu: str) -> None:

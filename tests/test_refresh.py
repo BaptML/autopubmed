@@ -7,7 +7,7 @@ avec l'ISSN papier comme avec l'électronique.
 
 import asyncio
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 import pytest
@@ -27,7 +27,9 @@ class FakePubMed:
         self._summaries = {s.pmid: s for s in summaries}
         self.esummary_calls: list[list[str]] = []
 
-    async def esearch(self, term: str, *, reldate_days: int | None = None) -> ESearchResult:
+    async def esearch(
+        self, term: str, *, reldate_days: int | None = None
+    ) -> ESearchResult:
         return ESearchResult(
             pmids=list(self._summaries),
             count=len(self._summaries),
@@ -41,10 +43,16 @@ class FakePubMed:
         return [self._summaries[p] for p in pmids if p in self._summaries]
 
 
-def _article(pmid: str, journal: str, issn: str | None, eissn: str | None) -> ArticleSummary:
+def _article(
+    pmid: str, journal: str, issn: str | None, eissn: str | None
+) -> ArticleSummary:
     return ArticleSummary(
-        pmid=pmid, title=f"Titre {pmid}", journal=journal,
-        issn=issn, eissn=eissn, pub_date="2026-01-15",
+        pmid=pmid,
+        title=f"Titre {pmid}",
+        journal=journal,
+        issn=issn,
+        eissn=eissn,
+        pub_date="2026-01-15",
     )
 
 
@@ -165,8 +173,13 @@ def test_les_articles_sans_doi_connu_ne_sont_pas_reinterroges(db: Path) -> None:
 def test_les_articles_anterieurs_a_la_colonne_doi_sont_rattrapes(db: Path) -> None:
     """Une ligne avec `doi` à NULL date d'avant la migration : on la complète."""
     avec_doi = ArticleSummary(
-        pmid="1", title="Titre 1", journal="N Engl J Med",
-        issn=NEJM_ISSN, eissn=None, pub_date="2026-01-15", doi="10.1056/x",
+        pmid="1",
+        title="Titre 1",
+        journal="N Engl J Med",
+        issn=NEJM_ISSN,
+        eissn=None,
+        pub_date="2026-01-15",
+        doi="10.1056/x",
     )
     fake = FakePubMed([avec_doi])
     with get_conn(db) as conn:
@@ -191,8 +204,12 @@ def test_last_refreshed_at_est_horodate(db: Path) -> None:
 
 def _dated(pmid: str, pub_date: str | None) -> ArticleSummary:
     return ArticleSummary(
-        pmid=pmid, title=f"Titre {pmid}", journal="N Engl J Med",
-        issn=NEJM_ISSN, eissn=None, pub_date=pub_date,
+        pmid=pmid,
+        title=f"Titre {pmid}",
+        journal="N Engl J Med",
+        issn=NEJM_ISSN,
+        eissn=None,
+        pub_date=pub_date,
     )
 
 
@@ -236,6 +253,35 @@ def test_sans_anciennete_maximale_les_vieux_articles_restent(db: Path) -> None:
 
     assert report.too_old == 0
     assert [row["pmid"] for row in lus] == ["ancien"]
+
+
+def test_les_publications_futures_sont_ecartees(db: Path) -> None:
+    """Borne haute stricte : rien de daté après aujourd'hui n'entre dans le cache."""
+    hier = (date.today() - timedelta(days=1)).isoformat()
+    articles = [
+        _dated("hier", hier),
+        _dated("demain", (date.today() + timedelta(days=1)).isoformat()),
+        _dated(
+            "annee_courante", str(date.today().year)
+        ),  # partielle, complétée au 31/12
+        _dated("dans_un_an", (date.today() + timedelta(days=400)).isoformat()),
+    ]
+    fake = FakePubMed(articles)
+
+    with get_conn(db) as conn:
+        query_id = repo.create_query(conn, name="A", pubmed_query="cancer[tiab]")
+        report = _run(conn, query_id, fake)
+        lus = {row["pmid"] for row in repo.list_articles_for_query(conn, query_id)}
+        lies = {
+            row["pmid"]
+            for row in conn.execute(
+                "SELECT pmid FROM query_articles WHERE query_id = ?", (query_id,)
+            )
+        }
+
+    assert report.in_future == 3
+    assert report.kept == 1
+    assert lus == lies == {"hier"}
 
 
 def test_recherche_vide_ne_casse_pas_le_pipeline(db: Path) -> None:

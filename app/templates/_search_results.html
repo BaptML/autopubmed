@@ -1,0 +1,56 @@
+{# Recherche dans le cache local : ce que l'application a déjà ramené, jamais
+   un appel à PubMed. Un article n'apparaît qu'une fois, toutes requêtes
+   confondues, contrairement au flux. #}
+<div class="entete-liste">
+  <div class="rang">
+    <div class="titre-bloc">
+      <div class="surtitre">Cache local · titres, revues, auteurs et résumés lus</div>
+      <h1>{% if saisie %}« {{ saisie }} »{% else %}Recherche{% endif %}</h1>
+    </div>
+
+    <div class="compteurs">
+      <div class="compteur-bloc">
+        <span class="etiquette">Trouvés</span>
+        <span class="valeur">{{ total }}</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="note-pied">
+    Les résumés n'étant récupérés qu'à l'ouverture d'un article, la recherche
+    porte surtout sur les titres, les revues et les auteurs — et s'étend aux
+    résumés déjà lus.
+  </div>
+</div>
+
+<div class="corps-liste">
+  <div class="colonne-articles">
+    <div class="barre-liste">
+      <span class="mono etiquette-liste">Résultats</span>
+    </div>
+
+    {% if not saisie %}
+      <p class="vide-message">
+        Tape quelques mots pour chercher dans les articles déjà ramenés.
+      </p>
+    {% elif not articles %}
+      <p class="vide-message">
+        Aucun article du cache ne répond à « {{ saisie }} ».<br>
+        Seul ce que les requêtes ont déjà rapporté est consultable ici.
+      </p>
+    {% endif %}
+
+    {% for article in articles %}
+      {% include "_article_row.html" %}
+    {% endfor %}
+    {% include "_charger_la_suite.html" %}
+  </div>
+
+  <div class="poignee poignee-encart" data-cible="--panel-width"
+       role="separator" aria-orientation="vertical" tabindex="0"
+       title="Glisser pour redimensionner · double-clic pour réinitialiser"></div>
+
+  <aside class="colonne-encart" id="encart">
+    <p class="encart-vide">Sélectionne un article pour lire son résumé.</p>
+  </aside>
+</div>

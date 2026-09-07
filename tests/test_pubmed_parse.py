@@ -116,7 +116,10 @@ def test_parse_esummary_entry_sans_metadonnees_de_citation() -> None:
     summary = parse_esummary_entry({"uid": "42", "title": "T", "source": "Rev"})
     assert summary is not None
     assert (summary.authors, summary.volume, summary.issue, summary.pages) == (
-        None, None, None, None,
+        None,
+        None,
+        None,
+        None,
     )
 
 
@@ -128,7 +131,10 @@ def test_parse_doi_retombe_sur_elocationid() -> None:
 def test_parse_doi_absent() -> None:
     # `elocationid` porte parfois une pagination ou un pii, jamais un DOI.
     assert parse_doi({"uid": "1", "elocationid": "e12345"}) is None
-    assert parse_doi({"uid": "1", "articleids": [{"idtype": "pii", "value": "S01"}]}) is None
+    assert (
+        parse_doi({"uid": "1", "articleids": [{"idtype": "pii", "value": "S01"}]})
+        is None
+    )
     assert parse_doi({}) is None
 
 
@@ -140,7 +146,10 @@ def test_parse_esummary_entry_sans_doi() -> None:
 
 
 def test_parse_esummary_entry_en_erreur() -> None:
-    assert parse_esummary_entry({"uid": "1", "error": "cannot get document summary"}) is None
+    assert (
+        parse_esummary_entry({"uid": "1", "error": "cannot get document summary"})
+        is None
+    )
     assert parse_esummary_entry({}) is None
 
 
@@ -166,7 +175,10 @@ def test_parse_pub_date(entry: dict, expected: str | None) -> None:
 
 
 def test_parse_pub_date_prefere_sortpubdate() -> None:
-    assert parse_pub_date({"sortpubdate": "2024/01/15 00:00", "pubdate": "2024"}) == "2024-01-15"
+    assert (
+        parse_pub_date({"sortpubdate": "2024/01/15 00:00", "pubdate": "2024"})
+        == "2024-01-15"
+    )
 
 
 def test_parse_esearch_nominal() -> None:
@@ -175,7 +187,11 @@ def test_parse_esearch_nominal() -> None:
             "count": "1234",
             "idlist": ["39000001", "39000002"],
             "querytranslation": '"N Engl J Med"[Journal] AND randomized[pt]',
-            "warninglist": {"phrasesignored": [], "quotedphrasesnotfound": [], "outputmessages": []},
+            "warninglist": {
+                "phrasesignored": [],
+                "quotedphrasesnotfound": [],
+                "outputmessages": [],
+            },
             "errorlist": {"phrasesnotfound": [], "fieldsnotfound": []},
         }
     }
@@ -194,7 +210,10 @@ def test_parse_esearch_remonte_les_avertissements_de_pubmed() -> None:
             "count": "0",
             "idlist": [],
             "querytranslation": "blabla[All Fields]",
-            "warninglist": {"quotedphrasesnotfound": ["\"terme inexistant\""], "outputmessages": []},
+            "warninglist": {
+                "quotedphrasesnotfound": ['"terme inexistant"'],
+                "outputmessages": [],
+            },
             "errorlist": {"fieldsnotfound": ["[tia]"], "phrasesnotfound": []},
         }
     }
@@ -234,8 +253,10 @@ def test_parse_abstract_xml_garde_les_sections_et_leurs_etiquettes() -> None:
 
 
 def test_parse_abstract_xml_sans_etiquette() -> None:
-    xml = "<PubmedArticleSet><Abstract><AbstractText>Texte simple.</AbstractText>" \
-          "</Abstract></PubmedArticleSet>"
+    xml = (
+        "<PubmedArticleSet><Abstract><AbstractText>Texte simple.</AbstractText>"
+        "</Abstract></PubmedArticleSet>"
+    )
     assert parse_abstract_xml(xml) == "Texte simple."
 
 

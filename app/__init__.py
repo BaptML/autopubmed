@@ -1,1 +1,1 @@
-"""PubMed Veille — lecteur de veille bibliographique médicale, local."""
+"""AutoPubMed — lecteur de veille bibliographique médicale, local."""

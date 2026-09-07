@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 
+from app.config import settings
 from app.db import utcnow_iso
 from app.models import ArticleSummary, JournalQuality, SavedQuery
 
 _QUERY_COLUMNS = (
     "id, name, folder, pubmed_query, quartile_min, citedness_min, "
-    "max_age_years, sort, created_at, last_refreshed_at"
+    "max_age_years, sort, created_at, last_refreshed_at, "
+    "last_visited_at, previous_visit_at"
 )
 
 
@@ -26,6 +28,8 @@ def _to_query(row: sqlite3.Row) -> SavedQuery:
         sort=row["sort"],
         created_at=row["created_at"],
         last_refreshed_at=row["last_refreshed_at"],
+        last_visited_at=row["last_visited_at"],
+        previous_visit_at=row["previous_visit_at"],
     )
 
 
@@ -318,20 +322,45 @@ _ARTICLE_COLUMNS = f"""
 """
 
 
-def _article_select(where: str, order_by: str) -> str:
+# Un article est nouveau dans une requête si son rattachement est postérieur au
+# repère de visite de celle-ci. Définie une fois, la clause sert au badge comme
+# au flux des nouveautés, qui ne peuvent donc pas se contredire.
+_NEW_CLAUSE = """(q.previous_visit_at IS NOT NULL
+                  AND qa.first_seen > q.previous_visit_at)"""
+
+
+# Taille d'une page de liste. Une requête large ramène des centaines
+# d'articles : les rendre d'un bloc alourdit la page sans servir la lecture.
+PAGE_SIZE = 50
+
+
+def _limite(limit: int | None, offset: int) -> str:
+    """Clause LIMIT/OFFSET. Les valeurs sont des entiers, jamais du texte reçu."""
+    if limit is None:
+        return ""
+    return f"LIMIT {int(limit)} OFFSET {int(offset)}"
+
+
+def _article_select(
+    where: str, order_by: str, extra: str = "", pagination: str = ""
+) -> str:
     """Fabrique la requête de lecture d'articles, seule forme utilisée par l'UI.
 
-    `is_new` compare `first_seen` à l'ouverture précédente de l'application :
-    les horodatages sont des chaînes ISO en UTC, donc comparables telles quelles.
+    `is_new` compare `first_seen` au repère de visite de la requête, lu par
+    jointure : les horodatages sont des chaînes ISO en UTC, donc comparables
+    telles quelles. Le calcul vit dans le SQL et non chez l'appelant, pour que
+    toutes les vues répondent la même chose sans avoir à se passer la frontière.
     """
     return f"""
         SELECT {_ARTICLE_COLUMNS},
                qa.read, qa.first_seen, qa.query_id,
-               (? IS NOT NULL AND qa.first_seen > ?) AS is_new
+               {_NEW_CLAUSE} AS is_new{extra}
         FROM query_articles qa
         JOIN articles a ON a.pmid = qa.pmid
+        JOIN queries q ON q.id = qa.query_id
         WHERE {where}
         ORDER BY {order_by}
+        {pagination}
     """
 
 
@@ -340,8 +369,16 @@ def _article_select(where: str, order_by: str) -> str:
 # lexicographique, et l'article serait écarté à tort. Une date absente ne permet
 # pas d'affirmer que l'article est trop vieux : on le garde.
 _AGE_CLAUSE = (
-    "(? IS NULL OR a.pub_date IS NULL "
-    "OR substr(a.pub_date || '-12-31', 1, 10) >= ?)"
+    "(? IS NULL OR a.pub_date IS NULL OR substr(a.pub_date || '-12-31', 1, 10) >= ?)"
+)
+
+# Borne haute : rien de daté après aujourd'hui (coquilles PubMed, numéros « à
+# paraître »). Option stricte, symétrique de `_AGE_CLAUSE` — la date partielle
+# est complétée vers la fin de période, si bien qu'une année seule ne repasse
+# « publiée » qu'au 31 décembre. `date('now')` est en UTC, comme
+# `_FLUX_AGE_CLAUSE`. Une date absente ne suffit pas à écarter l'article.
+_NOT_FUTURE_CLAUSE = (
+    "(a.pub_date IS NULL OR substr(a.pub_date || '-12-31', 1, 10) <= date('now'))"
 )
 
 
@@ -349,32 +386,181 @@ def list_articles_for_query(
     conn: sqlite3.Connection,
     query_id: int,
     sort: str = "date_desc",
-    new_since: str | None = None,
     max_age_years: int | None = None,
     favorites_only: bool = False,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[dict]:
     """Articles d'une requête, tels quels depuis le cache — aucun appel réseau."""
     order_by = _SORT_CLAUSES.get(sort, _SORT_CLAUSES["date_desc"])
     cutoff = cutoff_date(max_age_years)
-    where = f"qa.query_id = ? AND {_AGE_CLAUSE}"
-    if favorites_only:
-        where += " AND EXISTS(SELECT 1 FROM favorites f WHERE f.pmid = a.pmid)"
+    where = _where_for_query(favorites_only)
     rows = conn.execute(
-        _article_select(where, order_by),
-        (new_since, new_since, query_id, cutoff, cutoff),
+        _article_select(where, order_by, pagination=_limite(limit, offset)),
+        (query_id, cutoff, cutoff),
     ).fetchall()
     return [dict(row) for row in rows]
 
 
-def get_article_row(
-    conn: sqlite3.Connection, query_id: int, pmid: str, new_since: str | None = None
-) -> dict | None:
+def _where_for_query(favorites_only: bool) -> str:
+    """Filtre d'une liste de requête. Partagé par la lecture et le comptage."""
+    where = f"qa.query_id = ? AND {_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE}"
+    if favorites_only:
+        where += " AND EXISTS(SELECT 1 FROM favorites f WHERE f.pmid = a.pmid)"
+    return where
+
+
+def count_articles_for_query(
+    conn: sqlite3.Connection,
+    query_id: int,
+    max_age_years: int | None = None,
+    favorites_only: bool = False,
+) -> int:
+    """Total d'une liste, pour l'afficher pendant qu'elle se charge par pages."""
+    cutoff = cutoff_date(max_age_years)
+    return conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM query_articles qa
+        JOIN articles a ON a.pmid = qa.pmid
+        JOIN queries q ON q.id = qa.query_id
+        WHERE {_where_for_query(favorites_only)}
+        """,
+        (query_id, cutoff, cutoff),
+    ).fetchone()["n"]
+
+
+def get_article_row(conn: sqlite3.Connection, query_id: int, pmid: str) -> dict | None:
     """Une seule ligne d'article, pour la re-rendre après un changement d'état."""
     row = conn.execute(
         _article_select("qa.query_id = ? AND qa.pmid = ?", "a.pmid"),
-        (new_since, new_since, query_id, pmid),
+        (query_id, pmid),
     ).fetchone()
     return dict(row) if row else None
+
+
+# --- Flux des nouveautés ---------------------------------------------------
+
+# L'ancienneté maximale se lit sur la requête d'origine : le flux traverse des
+# requêtes aux réglages différents, chacune garde le sien.
+_FLUX_AGE_CLAUSE = (
+    "(q.max_age_years IS NULL OR a.pub_date IS NULL "
+    "OR substr(a.pub_date || '-12-31', 1, 10) >= "
+    "date('now', '-' || q.max_age_years || ' years'))"
+)
+
+
+def list_new_articles(
+    conn: sqlite3.Connection, limit: int | None = None, offset: int = 0
+) -> list[dict]:
+    """Tout ce qui est arrivé depuis la dernière visite, requêtes confondues.
+
+    Un article présent dans deux requêtes apparaît une fois par requête : la
+    lecture et le repère se suivent par paire, pas par article.
+    """
+    rows = conn.execute(
+        _article_select(
+            where=f"{_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE}",
+            order_by="qa.first_seen DESC, a.pub_date DESC, a.pmid DESC",
+            extra=", q.name AS query_name, q.folder AS query_folder",
+            pagination=_limite(limit, offset),
+        )
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def count_new_articles(conn: sqlite3.Connection) -> int:
+    """Compteur du flux, affiché en tête de barre latérale."""
+    return conn.execute(
+        f"""
+        SELECT COUNT(*) AS n
+        FROM query_articles qa
+        JOIN articles a ON a.pmid = qa.pmid
+        JOIN queries q ON q.id = qa.query_id
+        WHERE {_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE}
+        """
+    ).fetchone()["n"]
+
+
+def dismiss_new_articles(conn: sqlite3.Connection) -> None:
+    """Vide le flux, en calant toutes les requêtes sur maintenant.
+
+    C'est le seul geste qui décale les repères en bloc : ouvrir le flux ne
+    consomme rien, sans quoi le simple fait de le consulter l'effacerait.
+    """
+    now = utcnow_iso()
+    conn.execute(
+        "UPDATE queries SET previous_visit_at = ?, "
+        "last_visited_at = COALESCE(last_visited_at, ?)",
+        (now, now),
+    )
+
+
+# --- Recherche plein texte -------------------------------------------------
+
+
+def to_match_expression(saisie: str) -> str:
+    """Transforme une saisie libre en expression FTS5 sûre.
+
+    La syntaxe FTS5 a ses propres opérateurs : une apostrophe, un tiret ou un
+    « AND » saisi de bonne foi feraient lever SQLite. Chaque terme est donc mis
+    entre guillemets, ce qui le rend littéral, et les termes sont joints par un
+    ET implicite. Le dernier reçoit un joker : on cherche en tapant.
+    """
+    termes = [t for t in saisie.replace('"', " ").split() if t]
+    if not termes:
+        return ""
+    cites = [f'"{terme}"' for terme in termes[:-1]]
+    # Le joker se pose hors des guillemets, sinon il serait pris au pied de la
+    # lettre. Un terme d'une seule lettre ne le reçoit pas : trop de bruit.
+    dernier = termes[-1]
+    cites.append(f'"{dernier}"*' if len(dernier) > 1 else f'"{dernier}"')
+    return " ".join(cites)
+
+
+def search_articles(
+    conn: sqlite3.Connection, saisie: str, limit: int | None = None, offset: int = 0
+) -> list[dict]:
+    """Articles du cache local répondant à la saisie, les plus pertinents d'abord.
+
+    Cherche dans les titres, revues et auteurs — et dans les résumés déjà
+    récupérés, ceux-ci n'étant chargés qu'à la demande (§6 du spec).
+    """
+    expression = to_match_expression(saisie)
+    if not expression:
+        return []
+    rows = conn.execute(
+        f"""
+        SELECT {_ARTICLE_COLUMNS},
+               COALESCE(MAX(qa.read), 0) AS read,
+               MIN(qa.first_seen) AS first_seen,
+               MIN(qa.query_id) AS query_id,
+               COALESCE(MAX({_NEW_CLAUSE}), 0) AS is_new
+        FROM articles_fts
+        JOIN articles a ON a.rowid = articles_fts.rowid
+        LEFT JOIN query_articles qa ON qa.pmid = a.pmid
+        LEFT JOIN queries q ON q.id = qa.query_id
+        WHERE articles_fts MATCH ? AND {_NOT_FUTURE_CLAUSE}
+        GROUP BY a.pmid
+        ORDER BY MIN(articles_fts.rank), a.pub_date DESC
+        {_limite(limit, offset)}
+        """,
+        (expression,),
+    ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def count_search_results(conn: sqlite3.Connection, saisie: str) -> int:
+    """Total des résultats, pour dire ce qui reste à charger."""
+    expression = to_match_expression(saisie)
+    if not expression:
+        return 0
+    return conn.execute(
+        f"SELECT COUNT(*) AS n FROM articles_fts "
+        f"JOIN articles a ON a.rowid = articles_fts.rowid "
+        f"WHERE articles_fts MATCH ? AND {_NOT_FUTURE_CLAUSE}",
+        (expression,),
+    ).fetchone()["n"]
 
 
 # --- Favoris ---------------------------------------------------------------
@@ -408,38 +594,35 @@ def _grouped_article_select(where: str, order_by: str, join: str = "") -> str:
                COALESCE(MAX(qa.read), 0) AS read,
                MIN(qa.first_seen) AS first_seen,
                MIN(qa.query_id) AS query_id,
-               (? IS NOT NULL AND MIN(qa.first_seen) > ?) AS is_new
+               COALESCE(MAX(q.previous_visit_at IS NOT NULL
+                            AND qa.first_seen > q.previous_visit_at), 0) AS is_new
         FROM articles a
         {join}
         LEFT JOIN query_articles qa ON qa.pmid = a.pmid
+        LEFT JOIN queries q ON q.id = qa.query_id
         WHERE {where}
         GROUP BY a.pmid
         ORDER BY {order_by}
     """
 
 
-def list_favorite_articles(
-    conn: sqlite3.Connection, new_since: str | None = None
-) -> list[dict]:
+def list_favorite_articles(conn: sqlite3.Connection) -> list[dict]:
     """Favoris, du plus récemment étoilé au plus ancien."""
     rows = conn.execute(
         _grouped_article_select(
             where="1 = 1",
             order_by="fav.added_at DESC, a.pmid DESC",
             join="JOIN favorites fav ON fav.pmid = a.pmid",
-        ),
-        (new_since, new_since),
+        )
     ).fetchall()
     return [dict(row) for row in rows]
 
 
-def get_article_row_anywhere(
-    conn: sqlite3.Connection, pmid: str, new_since: str | None = None
-) -> dict | None:
+def get_article_row_anywhere(conn: sqlite3.Connection, pmid: str) -> dict | None:
     """Ligne d'un article vue depuis la bibliographie, sans requête courante."""
     row = conn.execute(
         _grouped_article_select(where="a.pmid = ?", order_by="a.pmid"),
-        (new_since, new_since, pmid),
+        (pmid,),
     ).fetchone()
     return dict(row) if row else None
 
@@ -490,8 +673,6 @@ def count_unread(conn: sqlite3.Connection, query_id: int) -> int:
 
 # --- État de l'application ----------------------------------------------
 
-LAST_OPENED_KEY = "last_opened_at"
-
 
 def get_app_state(conn: sqlite3.Connection, key: str) -> str | None:
     row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
@@ -507,16 +688,54 @@ def set_app_state(conn: sqlite3.Connection, key: str, value: str) -> None:
     )
 
 
-def record_app_opening(conn: sqlite3.Connection) -> str | None:
-    """Note l'ouverture de l'application et renvoie la précédente.
+def record_visit(
+    conn: sqlite3.Connection, query_id: int, gap_minutes: int | None = None
+) -> None:
+    """Note l'ouverture d'une requête, en décalant son repère s'il y a lieu.
 
-    C'est cette date précédente qui départage les articles « nouveaux » : ceux
-    apparus pendant que l'application était fermée. Elle vaut None au tout
-    premier lancement — aucun article n'est alors signalé comme nouveau.
+    Le repère (`previous_visit_at`) ne suit pas chaque ouverture : sans quoi
+    recharger la liste effacerait les badges qu'on est en train de regarder. Il
+    ne se décale qu'après une interruption d'au moins `gap_minutes`, ce qui vaut
+    pour une nouvelle session de lecture.
+
+    À la toute première ouverture, le repère tombe sur la création de la
+    requête : tout ce que son premier rafraîchissement a ramené est nouveau.
     """
-    previous = get_app_state(conn, LAST_OPENED_KEY)
-    set_app_state(conn, LAST_OPENED_KEY, utcnow_iso())
-    return previous
+    row = conn.execute(
+        "SELECT created_at, last_visited_at FROM queries WHERE id = ?", (query_id,)
+    ).fetchone()
+    if row is None:
+        return
+
+    gap = settings.visit_session_gap_minutes if gap_minutes is None else gap_minutes
+    now = utcnow_iso()
+    last = row["last_visited_at"]
+
+    if last is None:
+        marker = row["created_at"]
+    elif _passe_le_seuil(last, gap):
+        marker = last
+    else:
+        conn.execute(
+            "UPDATE queries SET last_visited_at = ? WHERE id = ?", (now, query_id)
+        )
+        return
+
+    conn.execute(
+        "UPDATE queries SET last_visited_at = ?, previous_visit_at = ? WHERE id = ?",
+        (now, marker, query_id),
+    )
+
+
+def _passe_le_seuil(last_visited_at: str, gap_minutes: int) -> bool:
+    """Vrai si la dernière visite est assez ancienne pour ouvrir une session."""
+    try:
+        last = datetime.fromisoformat(last_visited_at)
+    except ValueError:  # horodatage illisible : on repart d'une session propre
+        return True
+    if last.tzinfo is None:
+        last = last.replace(tzinfo=UTC)
+    return datetime.now(UTC) - last >= timedelta(minutes=gap_minutes)
 
 
 # --- Qualité des revues --------------------------------------------------
@@ -535,13 +754,18 @@ def get_quality_map(
         issns,
     ).fetchall()
     return {
-        row["issn"]: JournalQuality(quartile=row["quartile"], citedness=row["citedness"])
+        row["issn"]: JournalQuality(
+            quartile=row["quartile"], citedness=row["citedness"]
+        )
         for row in rows
     }
 
 
 def set_citedness(
-    conn: sqlite3.Connection, issn: str, citedness: float | None, journal_name: str | None
+    conn: sqlite3.Connection,
+    issn: str,
+    citedness: float | None,
+    journal_name: str | None,
 ) -> None:
     """Mémorise la citedness OpenAlex sans toucher au quartile Scimago.
 

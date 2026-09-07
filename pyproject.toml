@@ -1,7 +1,7 @@
 [project]
-name = "pubmed-veille"
+name = "autopubmed"
 version = "0.1.0"
-description = "Lecteur de veille bibliographique médicale, local et auto-hébergé"
+description = "AutoPubMed — lecteur de veille bibliographique médicale, local et auto-hébergé"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.115",
@@ -14,13 +14,35 @@ dependencies = [
     "python-multipart>=0.0.20",
 ]
 
+[project.scripts]
+# `uv run autopubmed` : démarre le serveur et ouvre le navigateur.
+autopubmed = "app.run:main"
+
 [dependency-groups]
 dev = [
     "pytest>=8.3",
+    "ruff>=0.16.6",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "C4", "SIM", "RUF"]
+# `ruff format` fixe déjà la largeur du code ; E501 ne mordrait plus que sur des
+# chaînes SQL ou des exemples de docstring qu'on ne coupe pas.
+ignore = ["E501"]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI : `Depends()`, `Form()`, `Query()` en argument par défaut, c'est l'idiome.
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Form", "fastapi.Query"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B008"]
 
 [build-system]
 requires = ["hatchling"]

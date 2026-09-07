@@ -1,4 +1,4 @@
-# CLAUDE.md — Règles du projet PubMed Veille
+# CLAUDE.md — Règles du projet AutoPubMed
 
 ## Contexte
 
@@ -26,8 +26,10 @@ autour de `sqlite3`.
 
 - Installer : `uv sync`
 - Lancer en dev : `uv run uvicorn app.main:app --reload`
+- Lancer (serveur + navigateur) : `uv run autopubmed`
 - Lancer un script ponctuel : `uv run python -m app.<module>`
 - Importer Scimago : `uv run python -m app.scimago_import <chemin_csv>`
+- Vérifier : `uv run ruff check . && uv run ruff format --check . && uv run pytest`
 
 ## Conventions de code
 
