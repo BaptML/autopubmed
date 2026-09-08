@@ -107,3 +107,7 @@ vérité (jamais réécrite ni validée localement) ; les filtres qualité sont 
 champs séparés appliqués **après** récupération, jamais fusionnés dans la
 requête PubMed ; l'interface lit la base, elle n'appelle pas PubMed en direct
 (sauf aperçu live et bouton « Rafraîchir »).
+
+## Licence
+
+MIT — voir [`LICENSE`](LICENSE).
