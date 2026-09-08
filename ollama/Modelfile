@@ -1,7 +1,8 @@
 FROM qwen3.5:4b
 
-# Variante de prompt avec exemple, à comparer au SYSTEM_PROMPT de app/llm.py
-# (activer avec OLLAMA_USE_MODEL_PROMPT=1). Construire : ollama create <nom> -f Modelfile
+# Variante de prompt avec exemple, à comparer au SYSTEM_PROMPT de app/llm.py.
+# Construire : ollama create <nom> -f Modelfile, puis OLLAMA_MODEL=<nom>.
+# L'application détecte la directive SYSTEM et n'envoie pas son propre prompt.
 
 # --- Comportement de génération ---
 # factuel et stable, peu de "créativité"

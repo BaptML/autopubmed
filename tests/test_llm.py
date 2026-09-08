@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import replace
 
 import httpx
 import pytest
@@ -22,12 +21,19 @@ REPONSE_TYPE = {
 }
 
 
-def _client(handler) -> OllamaClient:
-    return OllamaClient(httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+def _client(handler, system: str = "") -> OllamaClient:
+    """Client sur transport simulé. `system` : prompt embarqué annoncé par /api/show."""
+
+    def route(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/show":
+            return httpx.Response(200, json={"system": system})
+        return handler(request)
+
+    return OllamaClient(httpx.AsyncClient(transport=httpx.MockTransport(route)))
 
 
-async def _resumer(handler, titre="Titre", abstract="Abstract"):
-    async with _client(handler) as llm:
+async def _resumer(handler, titre="Titre", abstract="Abstract", system=""):
+    async with _client(handler, system) as llm:
         return await llm.summarize(titre, abstract)
 
 
@@ -65,13 +71,9 @@ def test_le_resume_et_les_metriques_sont_lus() -> None:
     assert summary.tokens_per_second == pytest.approx(20.0)
 
 
-def test_la_charge_desactive_le_raisonnement_et_le_flux(monkeypatch) -> None:
-    """Sans `think: false`, un modèle de raisonnement double le temps d'attente.
-
-    Le mode est fixé explicitement : sinon le test lirait le `.env` du poste et
-    changerait de comportement d'une machine à l'autre.
-    """
-    charge = _charge_envoyee(monkeypatch, ollama_use_model_prompt=False)
+def test_la_charge_desactive_le_raisonnement_et_le_flux() -> None:
+    """Sans `think: false`, un modèle de raisonnement double le temps d'attente."""
+    charge = _charge_envoyee()
 
     assert charge["think"] is False
     assert charge["stream"] is False
@@ -97,23 +99,21 @@ def test_une_sortie_complete_n_est_pas_signalee() -> None:
     assert asyncio.run(_resumer(handler)).truncated is False
 
 
-def _charge_envoyee(monkeypatch, **reglages) -> dict:
-    """Corps JSON réellement transmis à Ollama, sous les réglages donnés."""
-    # Settings est gelé : on substitue l'objet entier, pas un de ses champs.
-    monkeypatch.setattr("app.llm.settings", replace(settings, **reglages))
+def _charge_envoyee(system: str = "") -> dict:
+    """Corps JSON transmis à /api/chat, pour un modèle au prompt embarqué donné."""
     vues: list[dict] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         vues.append(json.loads(request.content))
         return httpx.Response(200, json=REPONSE_TYPE)
 
-    asyncio.run(_resumer(handler))
+    asyncio.run(_resumer(handler, system=system))
     return vues[0]
 
 
-def test_le_prompt_du_modele_remplace_le_notre(monkeypatch) -> None:
+def test_le_prompt_du_modele_remplace_le_notre() -> None:
     """Un message `system` écraserait le SYSTEM du Modelfile : on n'en met pas."""
-    charge = _charge_envoyee(monkeypatch, ollama_use_model_prompt=True)
+    charge = _charge_envoyee(system="Tu es un assistant.")
 
     roles = [m["role"] for m in charge["messages"]]
     assert roles == ["user"]
@@ -121,20 +121,36 @@ def test_le_prompt_du_modele_remplace_le_notre(monkeypatch) -> None:
     assert "temperature" not in charge["options"]
 
 
-def test_les_garde_fous_restent_dans_les_deux_modes(monkeypatch) -> None:
+def test_les_garde_fous_restent_dans_les_deux_modes() -> None:
     """num_predict et num_ctx tiennent à la machine, pas au prompt."""
-    for mode in (True, False):
-        charge = _charge_envoyee(monkeypatch, ollama_use_model_prompt=mode)
+    for system in ("Tu es un assistant.", ""):
+        charge = _charge_envoyee(system)
         assert charge["options"]["num_predict"] == 700
         assert charge["options"]["num_ctx"] == settings.ollama_num_ctx
         assert charge["think"] is False
 
 
-def test_par_defaut_nous_envoyons_notre_prompt(monkeypatch) -> None:
-    charge = _charge_envoyee(monkeypatch, ollama_use_model_prompt=False)
+def test_sans_prompt_embarque_nous_envoyons_le_notre() -> None:
+    charge = _charge_envoyee(system="")
 
     assert [m["role"] for m in charge["messages"]] == ["system", "user"]
     assert charge["options"]["temperature"] == 0.2
+
+
+def test_api_show_n_est_interroge_qu_une_fois_par_modele() -> None:
+    appels: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        appels.append(request.url.path)
+        return httpx.Response(200, json=REPONSE_TYPE)
+
+    async def deux_resumes() -> None:
+        async with _client(handler) as llm:
+            await llm.summarize("A", "a")
+            await llm.summarize("B", "b")
+
+    asyncio.run(deux_resumes())
+    assert appels == ["/api/chat", "/api/chat"]
 
 
 def test_l_erreur_http_remonte_a_l_appelant() -> None:

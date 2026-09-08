@@ -100,6 +100,9 @@ class OllamaClient:
             timeout=float(settings.ollama_timeout_seconds)
         )
         self._owns_client = client is None
+        # Modèles déjà interrogés sur /api/show : vrai s'ils embarquent un
+        # prompt système. Un appel par modèle et par client, pas par résumé.
+        self._embedded_prompt: dict[str, bool] = {}
 
     async def __aenter__(self) -> OllamaClient:
         return self
@@ -122,6 +125,24 @@ class OllamaClient:
             return False
         return True
 
+    async def has_embedded_prompt(self, model: str) -> bool:
+        """Vrai si le modèle porte sa propre directive SYSTEM (Modelfile).
+
+        Ollama fait primer le message `system` de la requête sur celui du
+        Modelfile : envoyer le nôtre à un tel modèle écraserait son prompt en
+        silence. Plutôt qu'un drapeau de configuration à tenir à jour, on
+        demande au modèle lui-même.
+        """
+        if model not in self._embedded_prompt:
+            response = await self._client.post(
+                f"{settings.ollama_base_url}/api/show", json={"model": model}
+            )
+            response.raise_for_status()
+            self._embedded_prompt[model] = bool(
+                (response.json().get("system") or "").strip()
+            )
+        return self._embedded_prompt[model]
+
     async def summarize(
         self, title: str, abstract: str, model: str | None = None
     ) -> Summary:
@@ -131,6 +152,7 @@ class OllamaClient:
         toucher au `.env`. L'application n'y touche pas.
         """
         chosen = model or settings.ollama_model
+        use_model_prompt = await self.has_embedded_prompt(chosen)
         user_message = {
             "role": "user",
             "content": build_user_prompt(title, abstract),
@@ -151,10 +173,9 @@ class OllamaClient:
                 "num_ctx": settings.ollama_num_ctx,
             },
         }
-        if settings.ollama_use_model_prompt:
-            # Le modèle porte son propre prompt (Modelfile). Envoyer un message
-            # `system` ici l'écraserait en silence, et ses PARAMETER seraient
-            # masqués par nos `options` : on ne transmet donc que le strict
+        if use_model_prompt:
+            # Le modèle porte son propre prompt (Modelfile). Ses PARAMETER
+            # seraient masqués par nos `options` : on ne transmet que le strict
             # nécessaire et on lui laisse la main.
             payload["messages"] = [user_message]
         else:
@@ -245,6 +266,8 @@ async def _bench(models: list[str], pmid: str | None) -> int:
             barre = "=" * 70
             print(f"{barre}\n{model}\n{barre}")
             try:
+                if await llm.has_embedded_prompt(model):
+                    print("(prompt système embarqué dans le modèle)\n")
                 summary = await llm.summarize(title, abstract, model=model)
             except httpx.HTTPError as exc:
                 print(f"ÉCHEC : {exc}\n")
