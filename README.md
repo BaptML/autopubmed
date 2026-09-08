@@ -96,7 +96,7 @@ app/
   models.py        dataclasses partagées
   templates/       gabarits Jinja2
   static/          CSS et HTMX
-docs/design/       référence de design historique (implémentée en phase 7)
+ollama/Modelfile   variante de prompt embarquée dans un modèle Ollama
 tests/             pytest
 ```
 

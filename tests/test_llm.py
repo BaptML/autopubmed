@@ -81,6 +81,22 @@ def test_la_charge_desactive_le_raisonnement_et_le_flux(monkeypatch) -> None:
     assert "français" in charge["messages"][0]["content"]
 
 
+def test_une_sortie_coupee_est_signalee() -> None:
+    """`done_reason: length` : le modèle a heurté `num_predict`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={**REPONSE_TYPE, "done_reason": "length"})
+
+    assert asyncio.run(_resumer(handler)).truncated is True
+
+
+def test_une_sortie_complete_n_est_pas_signalee() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=REPONSE_TYPE)
+
+    assert asyncio.run(_resumer(handler)).truncated is False
+
+
 def _charge_envoyee(monkeypatch, **reglages) -> dict:
     """Corps JSON réellement transmis à Ollama, sous les réglages donnés."""
     # Settings est gelé : on substitue l'objet entier, pas un de ses champs.

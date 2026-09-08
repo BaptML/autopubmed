@@ -213,6 +213,10 @@ async def refresh_all(conn: sqlite3.Connection) -> list[RefreshReport]:
     Une requête dont l'appel réseau échoue n'interrompt pas les suivantes :
     l'erreur atterrit dans son rapport. Indispensable au job de fond, qui
     tourne sans personne pour le relancer.
+
+    Un commit par requête : sans lui, le verrou d'écriture SQLite resterait
+    posé pendant tout le passage, et un clic « lu » ou « favori » dans
+    l'interface attendrait jusqu'à échouer sur « database is locked ».
     """
     reports: list[RefreshReport] = []
     async with PubMedClient() as pubmed:
@@ -223,6 +227,7 @@ async def refresh_all(conn: sqlite3.Connection) -> list[RefreshReport]:
                 report = RefreshReport(query_name=query.name)
                 report.errors.append(str(exc) or exc.__class__.__name__)
                 reports.append(report)
+            conn.commit()
     return reports
 
 

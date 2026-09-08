@@ -378,6 +378,19 @@ def mark_all_read(
     return _panel_and_sidebar(request, conn, query_id, favorites_only=bool(favorites))
 
 
+def _row_and_sidebar(
+    request: Request, conn: sqlite3.Connection, article: dict | None
+) -> HTMLResponse:
+    """Une ligne d'article redessinée, plus la barre latérale hors bande."""
+    if article is None:
+        raise HTTPException(status_code=404, detail="Article introuvable")
+    return templates.TemplateResponse(
+        request,
+        "_row_and_sidebar.html",
+        {"article": article, **_sidebar_context(conn)},
+    )
+
+
 def _panel_row_sidebar(
     request: Request,
     conn: sqlite3.Connection,
@@ -424,35 +437,29 @@ def toggle_read(
         return _panel_row_sidebar(
             request, conn, query_id, pmid, repo.get_abstract(conn, pmid), None
         )
-    article = repo.get_article_row(conn, query_id, pmid)
-    if article is None:
-        raise HTTPException(status_code=404, detail="Article introuvable")
-    return templates.TemplateResponse(
-        request,
-        "_row_and_sidebar.html",
-        {"article": article, **_sidebar_context(conn)},
-    )
+    return _row_and_sidebar(request, conn, repo.get_article_row(conn, query_id, pmid))
 
 
-async def _load_citation(conn: sqlite3.Connection, pmid: str) -> None:
-    """Complète les métadonnées de citation d'un article, si elles manquent.
+async def _fill_missing_citations(conn: sqlite3.Connection) -> None:
+    """Complète en un seul lot les favoris sans métadonnées de citation.
 
-    Même modèle que le résumé : un geste explicite de l'utilisateur déclenche
-    l'appel, le résultat est mis en cache. `authors` non nul (chaîne vide
-    comprise) signifie « déjà interrogé » : on ne rappelle pas PubMed.
-
-    L'échec réseau n'est pas remonté : le favori vient d'être posé et doit le
-    rester ; l'export rattrapera les métadonnées manquantes.
+    Même modèle que le résumé : un geste explicite (poser un favori, ouvrir
+    la bibliographie) déclenche l'appel, le résultat est mis en cache.
+    `authors` non nul (chaîne vide comprise) signifie « déjà interrogé ».
+    Un échec réseau reste silencieux — le favori vient d'être posé et doit le
+    rester, la bibliographie s'affiche avec ce qu'on a.
     """
-    summary = repo.get_article_summary(conn, pmid)
-    if summary is None or summary.authors is not None:
+    manquants = repo.favorites_missing_citation(conn)
+    if not manquants:
         return
     try:
         async with PubMedClient() as pubmed:
-            fetched = await pubmed.esummary([pmid])
+            fetched = await pubmed.esummary(manquants)
     except httpx.HTTPError as exc:
         logging.getLogger(__name__).warning(
-            "Métadonnées de citation indisponibles pour %s : %s", pmid, exc
+            "Métadonnées de citation indisponibles pour %d favoris : %s",
+            len(manquants),
+            exc,
         )
         return
     for summary in fetched:
@@ -475,7 +482,7 @@ async def toggle_favorite(
     repo.set_favorite(conn, pmid, favorite=bool(favorite))
     conn.commit()
     if favorite:
-        await _load_citation(conn, pmid)
+        await _fill_missing_citations(conn)
 
     if from_panel and query_id:
         return _panel_row_sidebar(
@@ -486,38 +493,7 @@ async def toggle_favorite(
         if query_id
         else repo.get_article_row_anywhere(conn, pmid)
     )
-    if article is None:
-        raise HTTPException(status_code=404, detail="Article introuvable")
-    return templates.TemplateResponse(
-        request,
-        "_row_and_sidebar.html",
-        {"article": article, **_sidebar_context(conn)},
-    )
-
-
-async def _fill_missing_citations(conn: sqlite3.Connection) -> None:
-    """Complète en un seul lot les favoris sans métadonnées de citation.
-
-    Ne concerne que les articles entrés en base avant l'arrivée des colonnes :
-    la bibliographie serait sinon amputée de leurs auteurs. Un échec réseau
-    reste silencieux — la bibliographie s'affiche avec ce qu'on a.
-    """
-    manquants = repo.favorites_missing_citation(conn)
-    if not manquants:
-        return
-    try:
-        async with PubMedClient() as pubmed:
-            fetched = await pubmed.esummary(manquants)
-    except httpx.HTTPError as exc:
-        logging.getLogger(__name__).warning(
-            "Métadonnées de citation indisponibles pour %d favoris : %s",
-            len(manquants),
-            exc,
-        )
-        return
-    for summary in fetched:
-        repo.upsert_article(conn, summary)
-    conn.commit()
+    return _row_and_sidebar(request, conn, article)
 
 
 def _new_context(conn: sqlite3.Connection, offset: int = 0) -> dict[str, Any]:

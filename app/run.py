@@ -70,9 +70,10 @@ def main() -> None:
     port = pick_port(HOST, DEFAULT_PORT)
     url = f"http://{HOST}:{port}/"
 
-    for field in _contact_problems():
-        print(f"Attention : {field}")
-    if _contact_problems():
+    problems = _contact_problems()
+    for problem in problems:
+        print(f"Attention : {problem}")
+    if problems:
         print("Les appels sortants doivent porter un contact réel — corrige .env.\n")
 
     print(f"AutoPubMed démarre sur {url}")

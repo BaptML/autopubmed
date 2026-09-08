@@ -1,13 +1,14 @@
 FROM qwen3.5:4b
 
+# Variante de prompt avec exemple, à comparer au SYSTEM_PROMPT de app/llm.py
+# (activer avec OLLAMA_USE_MODEL_PROMPT=1). Construire : ollama create <nom> -f Modelfile
+
 # --- Comportement de génération ---
 # factuel et stable, peu de "créativité"
 PARAMETER temperature 0.2
 PARAMETER top_p 0.9
-# borne la longueur → force la concision
-PARAMETER num_predict 256
-# assez pour un abstract + le prompt, léger en VRAM
-PARAMETER num_ctx 4096
+# num_predict et num_ctx ne se règlent pas ici : l'application les envoie
+# dans chaque requête (app/llm.py, .env), et Ollama fait primer la requête.
 
 SYSTEM """Tu es un assistant expert en synthèse d'abstracts scientifiques médicaux, destiné à un médecin qui fait de la veille bibliographique.
 

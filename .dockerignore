@@ -26,7 +26,7 @@ __pycache__/
 .claude/
 .ruff_cache/
 tests/
-docs/
+ollama/
 lancer.cmd
 *.md
 
