@@ -831,6 +831,13 @@ body.redimensionne { cursor: col-resize; user-select: none; }
 .revue-titre { flex: 1; }
 code.a-copier { user-select: all; white-space: nowrap; }  /* un clic sélectionne tout le fragment */
 
+/* --- Suggestions de termes --- */
+
+.suggestions { margin-top: 0; }
+.suggestions .etiquette-liste { display: block; margin-top: var(--space-4); }
+.suggestions .liste-revues { margin-top: var(--space-1); }
+.suggestions .liste-revues .aide { margin: 0 0 0 auto; white-space: nowrap; }
+
 /* Indicateur de chargement HTMX */
 .htmx-indicator { opacity: 0; transition: opacity .2s; }
 .htmx-request .htmx-indicator { opacity: 1; }

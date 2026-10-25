@@ -325,6 +325,7 @@ def edit_query_form(
             "query": query,
             "folders": repo.list_folders(conn),
             **_learning_context(conn, query_id),
+            "suggestions": relevance.suggestions_for_query(conn, query_id),
         },
     )
 

@@ -72,17 +72,25 @@ def _singular(word: str) -> str:
     return word
 
 
+def _words(text: str) -> list[tuple[int, str, str]]:
+    """(position dans le texte, forme normalisée, forme d'origine) des mots retenus.
+
+    Les nombres seuls (années, effectifs) sont écartés.
+    """
+    return [
+        (i, _singular(w), w)
+        for i, w in enumerate(_WORD.findall(_strip_accents(text.lower())))
+        if len(w) > 2 and not w.isdigit() and w not in _STOPWORDS
+    ]
+
+
 def tokenize(text: str) -> list[str]:
     """Unigrammes puis bigrammes d'un texte, normalisés.
 
     Les bigrammes captent les expressions (« septic shock ») que deux mots
-    isolés diluent. Les nombres seuls (années, effectifs) sont écartés.
+    isolés diluent.
     """
-    words = [
-        _singular(w)
-        for w in _WORD.findall(_strip_accents(text.lower()))
-        if len(w) > 2 and not w.isdigit() and w not in _STOPWORDS
-    ]
+    words = [norm for _, norm, _ in _words(text)]
     return words + [f"{a} {b}" for a, b in pairwise(words)]
 
 
@@ -259,6 +267,132 @@ def leave_one_out(
     return Evaluation(pairs, sum(baseline) / count)
 
 
+# --- Suggestions pour la chaîne PubMed ------------------------------------------
+
+# Un terme n'est proposé que s'il revient dans au moins autant de titres du
+# groupe où il est suggéré : un mot vu une fois n'est qu'une coïncidence.
+MIN_TERM_TITLES = 2
+SUGGESTIONS_PER_SIDE = 8
+
+
+@dataclass(frozen=True, slots=True)
+class TermSuggestion:
+    term: str  # tel qu'écrit dans les titres, pluriel compris
+    relevant: int  # titres notés 3 qui le contiennent
+    irrelevant: int  # titres notés 1 qui le contiennent
+    log_odds: float  # > 0 : côté pertinent
+
+    @property
+    def fragment(self) -> str:
+        """Fragment prêt à coller au bout de la chaîne. Jamais inséré d'office."""
+        operator = "AND" if self.log_odds > 0 else "NOT"
+        return f'{operator} "{self.term}"[tiab]'
+
+
+@dataclass(frozen=True, slots=True)
+class TermSuggestions:
+    relevant_titles: int
+    irrelevant_titles: int
+    include: list[TermSuggestion]
+    exclude: list[TermSuggestion]
+
+
+def _title_terms(title: str) -> dict[str, str]:
+    """Termes distincts d'un titre → leur forme d'origine.
+
+    Bigrammes seulement entre mots contigus : proposé entre guillemets, le
+    terme doit se retrouver tel quel en phrase dans PubMed, ce que « shock
+    and vasopressor » → « shock vasopressor » ne permettrait pas.
+    """
+    words = _words(title)
+    terms = {norm: surface for _, norm, surface in words}
+    for (i, a, surface_a), (j, b, surface_b) in pairwise(words):
+        if j == i + 1:
+            terms[f"{a} {b}"] = f"{surface_a} {surface_b}"
+    return terms
+
+
+def _log_odds(
+    relevant: int, relevant_total: int, irrelevant: int, irrelevant_total: int
+) -> float:
+    """Log-odds ratio de présence du terme, 3 contre 1, lissé d'un demi.
+
+    Le lissage évite l'infini d'un terme absent d'un côté et tempère les
+    petits effectifs.
+    """
+    return math.log(
+        (relevant + 0.5)
+        * (irrelevant_total - irrelevant + 0.5)
+        / ((relevant_total - relevant + 0.5) * (irrelevant + 0.5))
+    )
+
+
+def _without_redundant_words(candidates: list[TermSuggestion]) -> list[TermSuggestion]:
+    """Retire un mot isolé qui n'apparaît jamais hors d'un bigramme candidat.
+
+    Mêmes effectifs que « septic shock » : « septic » seul n'apprend rien de plus.
+    """
+    bigrams = {
+        (c.relevant, c.irrelevant, w)
+        for c in candidates
+        if " " in c.term
+        for w in c.term.split()
+    }
+    return [
+        c
+        for c in candidates
+        if " " in c.term or (c.relevant, c.irrelevant, c.term) not in bigrams
+    ]
+
+
+def suggest_terms(
+    documents: list[tuple[str, str, str | None]],
+    ratings: dict[str, int],
+    limit: int = SUGGESTIONS_PER_SIDE,
+) -> TermSuggestions:
+    """Termes qui distinguent les titres notés 3 des titres notés 1.
+
+    Les notes 2 n'entrent pas dans la comparaison : un article secondaire ne
+    dit ni ce qu'il faut garder, ni ce qu'il faut écarter.
+    """
+    titles = {pmid: title for pmid, title, _ in documents}
+    totals: Counter[int] = Counter()
+    present: dict[int, Counter[str]] = {3: Counter(), 1: Counter()}
+    surfaces: dict[str, Counter[str]] = defaultdict(Counter)
+    for pmid, rating in ratings.items():
+        if rating not in present or pmid not in titles:
+            continue
+        totals[rating] += 1
+        for term, surface in _title_terms(titles[pmid]).items():
+            present[rating][term] += 1
+            surfaces[term][surface] += 1
+
+    if not totals[3] or not totals[1]:
+        return TermSuggestions(totals[3], totals[1], [], [])
+
+    candidates = [
+        TermSuggestion(
+            # Forme la plus fréquente, puis l'ordre alphabétique pour départager.
+            term=min(surfaces[term].items(), key=lambda item: (-item[1], item[0]))[0],
+            relevant=present[3][term],
+            irrelevant=present[1][term],
+            log_odds=_log_odds(
+                present[3][term], totals[3], present[1][term], totals[1]
+            ),
+        )
+        for term in present[3].keys() | present[1].keys()
+    ]
+    candidates = _without_redundant_words(candidates)
+    candidates.sort(key=lambda c: (-abs(c.log_odds), c.term))
+    include = [
+        c for c in candidates if c.log_odds > 0 and c.relevant >= MIN_TERM_TITLES
+    ]
+    exclude = [
+        c for c in candidates if c.log_odds < 0 and c.irrelevant >= MIN_TERM_TITLES
+    ]
+    return TermSuggestions(totals[3], totals[1], include[:limit], exclude[:limit])
+
+
 # --- Accès base ----------------------------------------------------------------
 
 
@@ -275,6 +409,20 @@ def recompute_scores(conn: sqlite3.Connection, query_id: int) -> int:
     )
     repo.replace_scores(conn, query_id, {p: pr.score for p, pr in predictions.items()})
     return len(predictions)
+
+
+def suggestions_for_query(
+    conn: sqlite3.Connection, query_id: int
+) -> TermSuggestions | None:
+    """Termes à proposer pour affiner la chaîne. None si la couche est éteinte.
+
+    Lecture seule : la chaîne enregistrée n'est jamais touchée.
+    """
+    if not relevance_enabled():
+        return None
+    return suggest_terms(
+        repo.query_documents(conn, query_id), repo.ratings_for_query(conn, query_id)
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -357,6 +505,17 @@ def _report(conn: sqlite3.Connection, query_id: int, show: int) -> None:
     print(f"\nLes {show} moins pertinents prédits :")
     for pmid, prediction in ranked[-show:]:
         print(f"  {prediction.score:.2f}  {titles[pmid][:100]}")
+
+    suggestions = suggest_terms(documents, ratings)
+    print(
+        f"\nTermes distinctifs ({suggestions.relevant_titles} titres notés 3, "
+        f"{suggestions.irrelevant_titles} notés 1) :"
+    )
+    for suggestion in suggestions.include + suggestions.exclude:
+        print(
+            f"  {suggestion.fragment:<40} {suggestion.relevant:>3} / "
+            f"{suggestion.irrelevant:>3}   log-odds {suggestion.log_odds:+.2f}"
+        )
 
 
 def main(argv: list[str] | None = None) -> int:

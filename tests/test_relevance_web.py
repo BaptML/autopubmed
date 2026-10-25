@@ -319,3 +319,43 @@ def test_sans_pertinence_ni_tri_ni_masquage(client_sans_pertinence: TestClient) 
     assert response.status_code == 200
     assert "Early vasopressors" in response.text
     assert "masqués" not in response.text
+
+
+# --- Suggestions pour la chaîne -------------------------------------------
+
+
+def _chaine(client: TestClient) -> str:
+    with get_conn(client.db_path) as conn:
+        return repo.get_query(conn, client.query_ids[0]).pubmed_query
+
+
+def test_le_formulaire_propose_des_fragments_a_copier(client: TestClient) -> None:
+    _ajouter_et_noter(client, 8)
+    avant = _chaine(client)
+    html = client.get(f"/queries/{client.query_ids[0]}/edit").text
+    assert "Affiner la chaîne d'après tes notes" in html
+    assert '<code class="a-copier">AND &#34;septic shock&#34;[tiab]</code>' in html
+    assert '<code class="a-copier">NOT &#34;asthma&#34;[tiab]</code>' in html
+    assert "6/6 pertinents · 0/2 hors sujet" in html
+    # Afficher n'écrit rien : la chaîne enregistrée et le champ restent intacts.
+    assert _chaine(client) == avant
+    assert ">Sepsis</textarea>" in html
+
+
+def test_suggestions_vides_avant_les_deux_groupes(client: TestClient) -> None:
+    _ajouter_et_noter(client, 6)  # que des 3
+    html = client.get(f"/queries/{client.query_ids[0]}/edit").text
+    assert "Pas encore de terme distinctif" in html
+    assert "[tiab]" not in html
+
+
+def test_pas_de_suggestions_sur_une_requete_neuve(client: TestClient) -> None:
+    assert "Affiner la chaîne" not in client.get("/queries/new").text
+
+
+def test_sans_pertinence_pas_de_suggestions(
+    client_sans_pertinence: TestClient,
+) -> None:
+    client = client_sans_pertinence
+    html = client.get(f"/queries/{client.query_ids[0]}/edit").text
+    assert "Affiner la chaîne" not in html
