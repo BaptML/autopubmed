@@ -60,6 +60,9 @@ class Settings:
     ollama_num_ctx: int
     ollama_keep_alive: str
     enable_llm_summary: bool
+    # Couche « pertinence » : notes de 1 à 3 et tri/masquage appris. À 0, ses tables
+    # ne sont pas créées et l'interface se comporte comme avant la fonction.
+    enable_relevance: bool
 
     @property
     def ncbi_requests_per_second(self) -> int:
@@ -100,6 +103,7 @@ def _load() -> Settings:
         ollama_num_ctx=_env_int("OLLAMA_NUM_CTX", 3072),
         ollama_keep_alive=_env_str("OLLAMA_KEEP_ALIVE", "5m"),
         enable_llm_summary=_env_bool("ENABLE_LLM_SUMMARY", True),
+        enable_relevance=_env_bool("ENABLE_RELEVANCE", True),
     )
 
 

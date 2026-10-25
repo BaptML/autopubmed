@@ -15,6 +15,13 @@ from pathlib import Path
 from app.config import PROJECT_ROOT, settings
 
 SCHEMA_PATH: Path = PROJECT_ROOT / "app" / "schema.sql"
+RELEVANCE_SCHEMA_PATH: Path = PROJECT_ROOT / "app" / "schema_relevance.sql"
+# Tables de la couche pertinence, toutes créées par `schema_relevance.sql`.
+RELEVANCE_TABLES: tuple[str, ...] = (
+    "article_ratings",
+    "relevance_scores",
+    "relevance_settings",
+)
 
 
 def utcnow_iso() -> str:
@@ -166,9 +173,20 @@ def backup_db(db_path: Path) -> Path:
     return destination
 
 
+def _relevance_tables_missing(conn: sqlite3.Connection) -> bool:
+    """Vrai si la couche pertinence est activée mais ses tables absentes."""
+    return settings.enable_relevance and not all(
+        _table_exists(conn, table) for table in RELEVANCE_TABLES
+    )
+
+
 def _needs_migration(conn: sqlite3.Connection) -> bool:
     """Vrai si la base existante n'est pas au dernier schéma."""
-    return bool(_missing_columns(conn)) or not _table_exists(conn, "articles_fts")
+    return (
+        bool(_missing_columns(conn))
+        or not _table_exists(conn, "articles_fts")
+        or _relevance_tables_missing(conn)
+    )
 
 
 def init_db(db_path: Path | None = None) -> Path:
@@ -189,6 +207,12 @@ def init_db(db_path: Path | None = None) -> Path:
             print(f"Migration : sauvegarde prise — {backup_db(path)}")
 
         conn.executescript(schema)
+        # Désactivée, la couche ne crée rien : après une désinstallation, la
+        # base reste telle qu'avant la fonction.
+        if _relevance_tables_missing(conn):
+            conn.executescript(RELEVANCE_SCHEMA_PATH.read_text(encoding="utf-8"))
+            if articles_present:
+                print("Migration : tables de pertinence créées")
         added = _add_missing_columns(conn)
         for column in added:
             print(f"Migration : colonne ajoutée — {column}")
