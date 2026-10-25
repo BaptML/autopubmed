@@ -364,16 +364,18 @@ def _limite(limit: int | None, offset: int) -> str:
     return f"LIMIT {int(limit)} OFFSET {int(offset)}"
 
 
-def _rating_column() -> str:
-    """Note de l'utilisateur pour la paire (requête, article).
+def _relevance_columns() -> str:
+    """Note de l'utilisateur et pertinence prédite, pour la paire (requête, article).
 
-    Sous-requête plutôt que jointure, pour que la couche désactivée se réduise
-    à `NULL` : ses tables peuvent alors être absentes de la base.
+    Sous-requêtes plutôt que jointures, pour que la couche désactivée se
+    réduise à deux `NULL` : ses tables peuvent alors être absentes de la base.
     """
     if not relevance_enabled():
-        return "NULL AS rating"
+        return "NULL AS rating, NULL AS predicted"
     return """(SELECT ar.rating FROM article_ratings ar
-                WHERE ar.query_id = qa.query_id AND ar.pmid = qa.pmid) AS rating"""
+                WHERE ar.query_id = qa.query_id AND ar.pmid = qa.pmid) AS rating,
+              (SELECT rs.score FROM relevance_scores rs
+                WHERE rs.query_id = qa.query_id AND rs.pmid = qa.pmid) AS predicted"""
 
 
 def _article_select(
@@ -388,7 +390,7 @@ def _article_select(
     """
     return f"""
         SELECT {_ARTICLE_COLUMNS},
-               qa.read, qa.first_seen, qa.query_id, {_rating_column()},
+               qa.read, qa.first_seen, qa.query_id, {_relevance_columns()},
                {_NEW_CLAUSE} AS is_new{extra}
         FROM query_articles qa
         JOIN articles a ON a.pmid = qa.pmid
@@ -741,6 +743,35 @@ def ratings_for_query(conn: sqlite3.Connection, query_id: int) -> dict[str, int]
         "SELECT pmid, rating FROM article_ratings WHERE query_id = ?", (query_id,)
     ).fetchall()
     return {row["pmid"]: row["rating"] for row in rows}
+
+
+def query_documents(
+    conn: sqlite3.Connection, query_id: int
+) -> list[tuple[str, str, str | None]]:
+    """(PMID, titre, revue) de tous les articles rattachés à une requête.
+
+    Corpus du modèle de pertinence : sans filtre d'âge ni de date, pour que la
+    prédiction d'un article ne dépende pas des réglages d'affichage.
+    """
+    rows = conn.execute(
+        "SELECT a.pmid, a.title, a.journal FROM query_articles qa "
+        "JOIN articles a ON a.pmid = qa.pmid WHERE qa.query_id = ? ORDER BY a.pmid",
+        (query_id,),
+    ).fetchall()
+    return [(row["pmid"], row["title"], row["journal"]) for row in rows]
+
+
+def replace_scores(
+    conn: sqlite3.Connection, query_id: int, scores: dict[str, float]
+) -> None:
+    """Remplace toutes les prédictions d'une requête. Vide = modèle inactif."""
+    conn.execute("DELETE FROM relevance_scores WHERE query_id = ?", (query_id,))
+    now = utcnow_iso()
+    conn.executemany(
+        "INSERT INTO relevance_scores (query_id, pmid, score, computed_at) "
+        "VALUES (?, ?, ?, ?)",
+        [(query_id, pmid, score, now) for pmid, score in scores.items()],
+    )
 
 
 # --- État de l'application ----------------------------------------------

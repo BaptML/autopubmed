@@ -52,6 +52,17 @@
         </button>
       {% endfor %}
     </div>
+    {% if explanation %}
+      <p class="encart-prediction">
+        Prédiction ≈ {{ macros.note_predite(explanation.score) }}
+        {% if explanation.neighbor_title %}
+          · proche de « {{ explanation.neighbor_title }} »
+          (noté {{ explanation.neighbor_rating }})
+        {% else %}
+          · aucun terme commun avec tes articles notés : moyenne de la requête
+        {% endif %}
+      </p>
+    {% endif %}
   {% endif %}
 
   <div class="titre-cadre">Résumé</div>

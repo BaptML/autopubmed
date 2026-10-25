@@ -68,6 +68,20 @@
   <div class="colonne-articles">
     <div class="barre-liste">
       <span class="mono etiquette-liste">Articles</span>
+      {# Jauge du modèle de pertinence : combien de notes, et ce qui manque. #}
+      {% if learning %}
+        {% if learning.ready %}
+          <span class="mono etiquette-liste apprentissage pret"
+                title="Les articles non notés reçoivent une pertinence prédite">
+            Pertinence apprise · {{ learning.count }} notes
+          </span>
+        {% else %}
+          <span class="mono etiquette-liste apprentissage"
+                title="Il manque {{ learning.missing }} pour prédire la pertinence">
+            Apprentissage · {{ learning.count }}/{{ learning.needed }} notes
+          </span>
+        {% endif %}
+      {% endif %}
       {# Toujours rendu, désactivé quand il n'y a rien à marquer : une commande
          qui disparaît est une commande qu'on ne retrouve pas. #}
       {# Bascule du filtre : le lien pointe vers l'état inverse de l'actuel. #}

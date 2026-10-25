@@ -150,6 +150,77 @@ def test_set_rating_refuse_hors_echelle(client: TestClient) -> None:
         repo.set_rating(conn, client.query_ids[0], PMID, 0)
 
 
+# --- Prédiction ---------------------------------------------------------------
+
+# Huit articles à noter : six sur le choc septique (3), deux sur l'asthme (1).
+A_NOTER = {
+    f"5000000{i}": (titre, note)
+    for i, (titre, note) in enumerate(
+        [
+            ("Norepinephrine in septic shock", 3),
+            ("Vasopressin for septic shock", 3),
+            ("Septic shock fluid resuscitation", 3),
+            ("Hydrocortisone in septic shock", 3),
+            ("Septic shock mortality trends", 3),
+            ("Angiotensin for septic shock", 3),
+            ("Pediatric asthma inhalers", 1),
+            ("Asthma in adults", 1),
+        ]
+    )
+}
+
+
+def _ajouter_et_noter(client: TestClient, combien: int) -> None:
+    query_id = client.query_ids[0]
+    with get_conn(client.db_path) as conn:
+        for pmid, (titre, _) in A_NOTER.items():
+            repo.upsert_article(
+                conn,
+                ArticleSummary(
+                    pmid=pmid,
+                    title=titre,
+                    journal="Crit Care",
+                    issn=None,
+                    eissn=None,
+                    pub_date="2026-08-01",
+                ),
+            )
+            repo.link_article(conn, query_id, pmid)
+    for pmid, (_, note) in list(A_NOTER.items())[:combien]:
+        response = client.post(
+            f"/articles/{pmid}/rating", data={"query_id": query_id, "rating": note}
+        )
+        assert response.status_code == 200
+
+
+def test_jauge_d_apprentissage(client: TestClient) -> None:
+    _ajouter_et_noter(client, 3)
+    html = client.get(f"/queries/{client.query_ids[0]}/articles").text
+    assert "Apprentissage · 3/8 notes" in html
+    assert "badge prediction" not in html
+
+
+def test_noter_le_huitieme_active_la_prediction(client: TestClient) -> None:
+    _ajouter_et_noter(client, 8)
+    html = client.get(f"/queries/{client.query_ids[0]}/articles").text
+    assert "Pertinence apprise · 8 notes" in html
+    # L'article d'origine, non noté, reçoit une prédiction.
+    assert "badge prediction" in html
+
+    encart = client.get(
+        f"/articles/{PMID}/panel", params={"query_id": client.query_ids[0]}
+    ).text
+    assert "Prédiction ≈" in encart
+    assert "(noté 3)" in encart
+
+
+def test_la_prediction_ne_fuit_pas_dans_une_autre_requete(client: TestClient) -> None:
+    _ajouter_et_noter(client, 8)
+    html = client.get(f"/queries/{client.query_ids[1]}/articles").text
+    assert "badge prediction" not in html
+    assert "Apprentissage · 0/8 notes" in html
+
+
 # --- Drapeau à 0 : comportement d'avant la fonctionnalité ----------------
 
 

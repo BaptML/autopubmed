@@ -21,7 +21,7 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import citation, repo
+from app import citation, relevance, repo
 from app.config import PROJECT_ROOT, settings
 from app.db import connect, init_db, relevance_enabled
 from app.llm import OllamaClient
@@ -132,6 +132,15 @@ def _sidebar_context(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+def _learning_context(conn: sqlite3.Connection, query_id: int) -> dict[str, Any]:
+    """Jauge d'apprentissage de l'en-tête de liste. None si la couche est éteinte."""
+    if not relevance_enabled():
+        return {"learning": None}
+    return {
+        "learning": relevance.learning_status(repo.ratings_for_query(conn, query_id))
+    }
+
+
 def _pagination(total: int, offset: int, url_suite: str) -> dict[str, Any]:
     """Ce dont `_charger_la_suite.html` a besoin pour proposer la page suivante.
 
@@ -172,6 +181,7 @@ def _panel_and_sidebar(
             "favorites_only": favorites_only,
             "report": report,
             "unread": repo.count_unread(conn, query_id),
+            **_learning_context(conn, query_id),
             **_pagination(
                 repo.count_articles_for_query(
                     conn, query_id, query.max_age_years, favorites_only
@@ -251,6 +261,7 @@ def query_articles(
         "favorites_only": bool(favorites),
         "report": None,
         "unread": repo.count_unread(conn, query_id),
+        **_learning_context(conn, query_id),
         **_pagination(
             repo.count_articles_for_query(
                 conn, query_id, query.max_age_years, bool(favorites)
@@ -418,6 +429,7 @@ def _panel_row_sidebar(
             "error": error,
             "summary": summary,
             "summary_model": summary_model,
+            "explanation": relevance.explain(conn, query_id, pmid),
             **_sidebar_context(conn),
         },
     )
@@ -522,6 +534,9 @@ def rate_article(
         repo.set_rating(conn, query_id, pmid, rating)
     else:
         repo.clear_rating(conn, query_id, pmid)
+    # Chaque note réentraîne le modèle de la requête : les badges de la liste
+    # suivront à son prochain affichage.
+    relevance.recompute_scores(conn, query_id)
     conn.commit()
     return _panel_row_sidebar(
         request, conn, query_id, pmid, repo.get_abstract(conn, pmid), None

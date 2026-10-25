@@ -25,7 +25,12 @@
       <span class="badge nouveau" title="Apparu depuis la dernière ouverture de l'application">nouveau</span>
     {% endif %}
     {{ macros.badge_quartile(article.quartile) }}
-    {{ macros.badge_note(article.rating) }}
+    {# La note de l'utilisateur fait foi : la prédiction ne s'affiche qu'à défaut. #}
+    {% if article.rating %}
+      {{ macros.badge_note(article.rating) }}
+    {% else %}
+      {{ macros.badge_prediction(article.predicted) }}
+    {% endif %}
     <span class="revue">{{ article.journal or "revue inconnue" }}</span>
     <span class="date">{{ article.pub_date|date_fr }}</span>
     <span class="pmid">PMID {{ article.pmid }}</span>
