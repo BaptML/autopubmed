@@ -298,10 +298,15 @@ def link_article(conn: sqlite3.Connection, query_id: int, pmid: str) -> bool:
 # --- Lectures pour l'interface -------------------------------------------
 
 # Le tri vient de la base : on ne concatène jamais sa valeur brute en SQL.
+# « relevance » lit les alias `rating` et `predicted` de `_article_select` : la
+# note fait foi, la prédiction vient à défaut, puis l'ordre chronologique. Sans
+# note ni prédiction (couche éteinte ou modèle pas prêt), c'est `date_desc`.
 _SORT_CLAUSES = {
     "date_desc": "a.pub_date DESC, a.pmid DESC",
     "date_asc": "a.pub_date ASC, a.pmid ASC",
     "journal": "a.journal ASC, a.pub_date DESC",
+    "relevance": "COALESCE(rating, predicted) DESC NULLS LAST, "
+    "a.pub_date DESC, a.pmid DESC",
 }
 
 # Meilleur quartile parmi les ISSN de l'article : c'est la même double
@@ -312,12 +317,39 @@ _QUARTILE_SUBQUERY = """
 """
 
 
+def _relevance_hidden() -> str:
+    """Expression SQL vraie si la paire `qa` est masquée par la pertinence.
+
+    Masqué : la note, ou à défaut la prédiction, est sous le seuil choisi pour
+    la requête. Sans seuil ou sans note ni prédiction, la comparaison vaut NULL
+    et l'article reste visible. Une seule définition pour la liste, son
+    comptage, les non-lus et le flux : les compteurs ne peuvent pas contredire
+    la liste. Couche éteinte : rien n'est masqué, et ses tables peuvent manquer.
+    """
+    if not relevance_enabled():
+        return "0"
+    return """IFNULL(
+        COALESCE(
+            (SELECT ar.rating FROM article_ratings ar
+              WHERE ar.query_id = qa.query_id AND ar.pmid = qa.pmid),
+            (SELECT rs.score FROM relevance_scores rs
+              WHERE rs.query_id = qa.query_id AND rs.pmid = qa.pmid))
+        < (SELECT st.hide_below FROM relevance_settings st
+            WHERE st.query_id = qa.query_id),
+        0)"""
+
+
+def _relevance_visible() -> str:
+    return f"NOT {_relevance_hidden()}"
+
+
 def folders_with_queries(conn: sqlite3.Connection) -> list[dict]:
     """Arborescence de la barre latérale : dossiers, requêtes, non-lus."""
     rows = conn.execute(
-        """
+        f"""
         SELECT q.id, q.name, q.folder, q.last_refreshed_at,
-               COUNT(CASE WHEN qa.read = 0 THEN 1 END) AS unread,
+               COUNT(CASE WHEN qa.read = 0 AND {_relevance_visible()}
+                          THEN 1 END) AS unread,
                COUNT(qa.pmid) AS total
         FROM queries q
         LEFT JOIN query_articles qa ON qa.query_id = q.id
@@ -371,11 +403,12 @@ def _relevance_columns() -> str:
     réduise à deux `NULL` : ses tables peuvent alors être absentes de la base.
     """
     if not relevance_enabled():
-        return "NULL AS rating, NULL AS predicted"
-    return """(SELECT ar.rating FROM article_ratings ar
+        return "NULL AS rating, NULL AS predicted, 0 AS is_hidden"
+    return f"""(SELECT ar.rating FROM article_ratings ar
                 WHERE ar.query_id = qa.query_id AND ar.pmid = qa.pmid) AS rating,
               (SELECT rs.score FROM relevance_scores rs
-                WHERE rs.query_id = qa.query_id AND rs.pmid = qa.pmid) AS predicted"""
+                WHERE rs.query_id = qa.query_id AND rs.pmid = qa.pmid) AS predicted,
+              {_relevance_hidden()} AS is_hidden"""
 
 
 def _article_select(
@@ -427,11 +460,12 @@ def list_articles_for_query(
     favorites_only: bool = False,
     limit: int | None = None,
     offset: int = 0,
+    show_hidden: bool = False,
 ) -> list[dict]:
     """Articles d'une requête, tels quels depuis le cache — aucun appel réseau."""
     order_by = _SORT_CLAUSES.get(sort, _SORT_CLAUSES["date_desc"])
     cutoff = cutoff_date(max_age_years)
-    where = _where_for_query(favorites_only)
+    where = _where_for_query(favorites_only, show_hidden)
     rows = conn.execute(
         _article_select(where, order_by, pagination=_limite(limit, offset)),
         (query_id, cutoff, cutoff),
@@ -439,11 +473,13 @@ def list_articles_for_query(
     return [dict(row) for row in rows]
 
 
-def _where_for_query(favorites_only: bool) -> str:
+def _where_for_query(favorites_only: bool, show_hidden: bool = False) -> str:
     """Filtre d'une liste de requête. Partagé par la lecture et le comptage."""
     where = f"qa.query_id = ? AND {_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE}"
     if favorites_only:
         where += " AND EXISTS(SELECT 1 FROM favorites f WHERE f.pmid = a.pmid)"
+    if not show_hidden:
+        where += f" AND {_relevance_visible()}"
     return where
 
 
@@ -452,6 +488,7 @@ def count_articles_for_query(
     query_id: int,
     max_age_years: int | None = None,
     favorites_only: bool = False,
+    show_hidden: bool = False,
 ) -> int:
     """Total d'une liste, pour l'afficher pendant qu'elle se charge par pages."""
     cutoff = cutoff_date(max_age_years)
@@ -461,10 +498,22 @@ def count_articles_for_query(
         FROM query_articles qa
         JOIN articles a ON a.pmid = qa.pmid
         JOIN queries q ON q.id = qa.query_id
-        WHERE {_where_for_query(favorites_only)}
+        WHERE {_where_for_query(favorites_only, show_hidden)}
         """,
         (query_id, cutoff, cutoff),
     ).fetchone()["n"]
+
+
+def count_hidden_for_query(
+    conn: sqlite3.Connection,
+    query_id: int,
+    max_age_years: int | None = None,
+    favorites_only: bool = False,
+) -> int:
+    """Articles que la pertinence retire de la liste, pour le dire en en-tête."""
+    return count_articles_for_query(
+        conn, query_id, max_age_years, favorites_only, show_hidden=True
+    ) - count_articles_for_query(conn, query_id, max_age_years, favorites_only)
 
 
 def get_article_row(conn: sqlite3.Connection, query_id: int, pmid: str) -> dict | None:
@@ -487,6 +536,14 @@ _FLUX_AGE_CLAUSE = (
 )
 
 
+def _flux_where() -> str:
+    """Filtre du flux, partagé par sa lecture et son compteur."""
+    return (
+        f"{_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE} "
+        f"AND {_relevance_visible()}"
+    )
+
+
 def list_new_articles(
     conn: sqlite3.Connection, limit: int | None = None, offset: int = 0
 ) -> list[dict]:
@@ -497,7 +554,7 @@ def list_new_articles(
     """
     rows = conn.execute(
         _article_select(
-            where=f"{_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE}",
+            where=_flux_where(),
             order_by="qa.first_seen DESC, a.pub_date DESC, a.pmid DESC",
             extra=", q.name AS query_name, q.folder AS query_folder",
             pagination=_limite(limit, offset),
@@ -514,7 +571,7 @@ def count_new_articles(conn: sqlite3.Connection) -> int:
         FROM query_articles qa
         JOIN articles a ON a.pmid = qa.pmid
         JOIN queries q ON q.id = qa.query_id
-        WHERE {_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE}
+        WHERE {_flux_where()}
         """
     ).fetchone()["n"]
 
@@ -688,21 +745,34 @@ def set_read(conn: sqlite3.Connection, query_id: int, pmid: str, read: bool) -> 
     )
 
 
-def mark_all_read(conn: sqlite3.Connection, query_id: int) -> int:
+def _unread_where(show_hidden: bool) -> str:
+    """Non-lus d'une requête : ceux que la liste montre, masqués compris ou non."""
+    where = "qa.query_id = ? AND qa.read = 0"
+    return where if show_hidden else f"{where} AND {_relevance_visible()}"
+
+
+def mark_all_read(
+    conn: sqlite3.Connection, query_id: int, show_hidden: bool = False
+) -> int:
     """Marque lus tous les articles d'une requête, et d'elle seule.
 
+    Les articles masqués par la pertinence ne sont touchés que s'ils sont
+    affichés : on ne marque lu que ce que l'on a sous les yeux, et un article
+    réaffiché plus tard garde son état non lu.
     Renvoie le nombre d'articles réellement basculés.
     """
     cursor = conn.execute(
-        "UPDATE query_articles SET read = 1 WHERE query_id = ? AND read = 0",
+        f"UPDATE query_articles AS qa SET read = 1 WHERE {_unread_where(show_hidden)}",
         (query_id,),
     )
     return cursor.rowcount
 
 
-def count_unread(conn: sqlite3.Connection, query_id: int) -> int:
+def count_unread(
+    conn: sqlite3.Connection, query_id: int, show_hidden: bool = False
+) -> int:
     row = conn.execute(
-        "SELECT COUNT(*) AS n FROM query_articles WHERE query_id = ? AND read = 0",
+        f"SELECT COUNT(*) AS n FROM query_articles qa WHERE {_unread_where(show_hidden)}",
         (query_id,),
     ).fetchone()
     return int(row["n"])
@@ -759,6 +829,29 @@ def query_documents(
         (query_id,),
     ).fetchall()
     return [(row["pmid"], row["title"], row["journal"]) for row in rows]
+
+
+def get_hide_below(conn: sqlite3.Connection, query_id: int) -> float | None:
+    """Seuil de masquage d'une requête. None = rien n'est masqué."""
+    if not relevance_enabled():
+        return None
+    row = conn.execute(
+        "SELECT hide_below FROM relevance_settings WHERE query_id = ?", (query_id,)
+    ).fetchone()
+    return row["hide_below"] if row else None
+
+
+def set_hide_below(
+    conn: sqlite3.Connection, query_id: int, hide_below: float | None
+) -> None:
+    """Règle le seuil de masquage. None le retire : tout réapparaît, rien n'est perdu."""
+    if hide_below is not None and not 1 < hide_below <= 3:
+        raise ValueError(f"Seuil hors échelle : {hide_below}")
+    conn.execute(
+        "INSERT INTO relevance_settings (query_id, hide_below) VALUES (?, ?) "
+        "ON CONFLICT (query_id) DO UPDATE SET hide_below = excluded.hide_below",
+        (query_id, hide_below),
+    )
 
 
 def replace_scores(

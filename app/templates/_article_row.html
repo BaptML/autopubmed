@@ -11,7 +11,7 @@
    d'origine a été supprimée n'a plus de contexte de lecture. La ligne reste
    alors affichée, mais sans ouverture ni marquage. #}
 {% set ligne_id = "article-" ~ (article.query_id if article.query_id else "biblio") ~ "-" ~ article.pmid %}
-<article class="article{{ ' non-lu' if not article.read }}"
+<article class="article{{ ' non-lu' if not article.read }}{{ ' masque' if article.is_hidden }}"
          id="{{ ligne_id }}"
          {% if oob %}hx-swap-oob="true"{% endif %}
          {% if article.query_id %}

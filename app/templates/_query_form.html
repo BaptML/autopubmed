@@ -87,12 +87,44 @@
       <div class="champ">
         <label for="champ-tri">Tri d'affichage</label>
         <select id="champ-tri" name="sort">
-          {% for value, label in [('date_desc', 'Date décroissante'), ('date_asc', 'Date croissante'), ('journal', 'Revue')] %}
+          {% set tris = [('date_desc', 'Date décroissante'), ('date_asc', 'Date croissante'), ('journal', 'Revue')] %}
+          {% if relevance_enabled() %}{% set tris = tris + [('relevance', 'Pertinence')] %}{% endif %}
+          {% for value, label in tris %}
             <option value="{{ value }}"
               {{ 'selected' if query and query.sort == value }}>{{ label }}</option>
           {% endfor %}
         </select>
+        {% if relevance_enabled() %}
+          <p class="aide">« Pertinence » : tes notes puis les prédictions d'abord, le reste par date.</p>
+        {% endif %}
       </div>
+
+      {# Couche pertinence : champ séparé, appliqué à l'affichage seulement.
+         Rien n'est supprimé ni écarté au rafraîchissement. Le menu reste actif
+         dès qu'un seuil est posé, pour qu'on puisse toujours le retirer. #}
+      {% if relevance_enabled() %}
+        {% set masquage_possible = (learning and learning.ready) or hide_below is not none %}
+        <div class="champ">
+          <label for="champ-masquage">Masquer les peu pertinents</label>
+          <select id="champ-masquage" name="hide_below"
+                  {% if not masquage_possible %}disabled{% endif %}>
+            <option value="aucun">ne rien masquer</option>
+            {% for value, label in [(1.5, '< 1,5'), (2.0, '< 2'), (2.5, '< 2,5')] %}
+              <option value="{{ value }}"
+                {{ 'selected' if hide_below == value }}>note ou prédiction {{ label }}</option>
+            {% endfor %}
+          </select>
+          <p class="aide">
+            {% if masquage_possible %}
+              Réversible : les articles masqués restent en base et se réaffichent
+              d'un clic depuis la liste.
+            {% else %}
+              Disponible quand la pertinence est apprise
+              ({{ learning.count }}/{{ learning.needed }} notes).
+            {% endif %}
+          </p>
+        </div>
+      {% endif %}
     </div>
 
     <div class="barre-actions">

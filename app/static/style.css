@@ -534,6 +534,12 @@ body.redimensionne { cursor: col-resize; user-select: none; }
 .apprentissage { color: var(--ink-45); }
 .apprentissage.pret { color: var(--color-accent-700); }
 
+/* Masquage par pertinence : la bascule suit celle des favoris ; un article
+   masqué mais réaffiché est atténué, pour qu'on sache pourquoi il était caché. */
+.bascule-masques.actif { color: var(--color-accent-700); border-color: currentColor; }
+.article.masque { opacity: 0.55; }
+.article.masque:hover { opacity: 1; }
+
 /* Explication de la prédiction : deux lignes au plus, le titre voisin est
    parfois long. */
 .encart-prediction {

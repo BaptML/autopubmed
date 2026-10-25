@@ -239,3 +239,83 @@ def test_sans_pertinence_rien_n_apparait(client_sans_pertinence: TestClient) -> 
 
 def test_sans_pertinence_noter_est_refuse(client_sans_pertinence: TestClient) -> None:
     assert _noter(client_sans_pertinence, 3).status_code == 404
+
+
+# --- Tri et masquage ------------------------------------------------------
+
+
+def _enregistrer(client: TestClient, **champs) -> object:
+    """Soumet le formulaire d'édition de la première requête."""
+    data = {"name": "Sepsis", "pubmed_query": "Sepsis", "folder": "Sans dossier"}
+    data.update(champs)
+    return client.post(f"/queries/{client.query_ids[0]}/edit", data=data)
+
+
+def _seuil(client: TestClient) -> float | None:
+    with get_conn(client.db_path) as conn:
+        return repo.get_hide_below(conn, client.query_ids[0])
+
+
+def test_le_masquage_attend_que_le_modele_soit_pret(client: TestClient) -> None:
+    _ajouter_et_noter(client, 3)
+    html = client.get(f"/queries/{client.query_ids[0]}/edit").text
+    assert '<option value="relevance"' in html
+    assert 'name="hide_below"\n                  disabled' in html
+    assert "(3/8 notes)" in html
+
+    _ajouter_et_noter(client, 8)
+    html = client.get(f"/queries/{client.query_ids[0]}/edit").text
+    assert 'name="hide_below"\n                  disabled' not in html
+    assert "Réversible" in html
+
+
+def test_masquer_depuis_le_formulaire_puis_afficher(client: TestClient) -> None:
+    _ajouter_et_noter(client, 8)
+    response = _enregistrer(client, sort="relevance", hide_below="2")
+    assert response.status_code == 200
+    assert _seuil(client) == 2.0
+    # Les deux articles notés 1 sont masqués, et le compteur le dit.
+    assert "2 masqués · afficher" in response.text
+    assert "Asthma in adults" not in response.text
+    assert "masqué sous 2,0 de pertinence" in response.text
+
+    tous = client.get(f"/queries/{client.query_ids[0]}/articles?show_hidden=1").text
+    assert "2 masqués · masquer" in tous
+    assert "Asthma in adults" in tous
+    assert 'class="article non-lu masque"' in tous
+    # Rafraîchir ou tout marquer lu garde la liste dans le même état.
+    assert '"show_hidden": 1' in tous
+
+
+def test_ne_rien_masquer_rend_tout(client: TestClient) -> None:
+    _ajouter_et_noter(client, 8)
+    _enregistrer(client, hide_below="2.5")
+    response = _enregistrer(client, hide_below="aucun")
+    assert _seuil(client) is None
+    assert "masqués" not in response.text
+    assert "Asthma in adults" in response.text
+
+
+def test_un_formulaire_sans_le_champ_garde_le_seuil(client: TestClient) -> None:
+    _ajouter_et_noter(client, 8)
+    _enregistrer(client, hide_below="2")
+    _enregistrer(client)  # menu désactivé : le champ n'est pas envoyé
+    assert _seuil(client) == 2.0
+
+
+def test_seuil_invalide_refuse(client: TestClient) -> None:
+    assert _enregistrer(client, hide_below="7").status_code == 422
+    assert _enregistrer(client, hide_below="abc").status_code == 422
+    assert _seuil(client) is None
+
+
+def test_sans_pertinence_ni_tri_ni_masquage(client_sans_pertinence: TestClient) -> None:
+    client = client_sans_pertinence
+    html = client.get(f"/queries/{client.query_ids[0]}/edit").text
+    assert "hide_below" not in html
+    assert '<option value="relevance"' not in html
+    # Un tri « relevance » resté en base retombe sur l'ordre chronologique.
+    response = _enregistrer(client, sort="relevance", hide_below="2")
+    assert response.status_code == 200
+    assert "Early vasopressors" in response.text
+    assert "masqués" not in response.text
