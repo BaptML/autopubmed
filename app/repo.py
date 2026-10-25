@@ -6,7 +6,7 @@ import sqlite3
 from datetime import UTC, date, datetime, timedelta
 
 from app.config import settings
-from app.db import utcnow_iso
+from app.db import relevance_enabled, utcnow_iso
 from app.models import ArticleSummary, JournalQuality, SavedQuery
 
 _QUERY_COLUMNS = (
@@ -364,6 +364,18 @@ def _limite(limit: int | None, offset: int) -> str:
     return f"LIMIT {int(limit)} OFFSET {int(offset)}"
 
 
+def _rating_column() -> str:
+    """Note de l'utilisateur pour la paire (requête, article).
+
+    Sous-requête plutôt que jointure, pour que la couche désactivée se réduise
+    à `NULL` : ses tables peuvent alors être absentes de la base.
+    """
+    if not relevance_enabled():
+        return "NULL AS rating"
+    return """(SELECT ar.rating FROM article_ratings ar
+                WHERE ar.query_id = qa.query_id AND ar.pmid = qa.pmid) AS rating"""
+
+
 def _article_select(
     where: str, order_by: str, extra: str = "", pagination: str = ""
 ) -> str:
@@ -376,7 +388,7 @@ def _article_select(
     """
     return f"""
         SELECT {_ARTICLE_COLUMNS},
-               qa.read, qa.first_seen, qa.query_id,
+               qa.read, qa.first_seen, qa.query_id, {_rating_column()},
                {_NEW_CLAUSE} AS is_new{extra}
         FROM query_articles qa
         JOIN articles a ON a.pmid = qa.pmid
@@ -692,6 +704,43 @@ def count_unread(conn: sqlite3.Connection, query_id: int) -> int:
         (query_id,),
     ).fetchone()
     return int(row["n"])
+
+
+# --- Notes de pertinence ----------------------------------------------------
+
+# Échelle des notes et libellés affichés : une seule définition pour le
+# contrôle des valeurs et pour l'interface.
+RATING_LABELS: dict[int, str] = {1: "hors sujet", 2: "secondaire", 3: "pertinent"}
+RATINGS: tuple[int, ...] = tuple(RATING_LABELS)
+
+
+def set_rating(conn: sqlite3.Connection, query_id: int, pmid: str, rating: int) -> None:
+    """Note un article dans une requête ; une nouvelle note remplace l'ancienne."""
+    if rating not in RATINGS:
+        raise ValueError(f"Note hors échelle : {rating}")
+    conn.execute(
+        "INSERT INTO article_ratings (query_id, pmid, rating, rated_at) "
+        "VALUES (?, ?, ?, ?) "
+        "ON CONFLICT (query_id, pmid) "
+        "DO UPDATE SET rating = excluded.rating, rated_at = excluded.rated_at",
+        (query_id, pmid, rating, utcnow_iso()),
+    )
+
+
+def clear_rating(conn: sqlite3.Connection, query_id: int, pmid: str) -> None:
+    """Retire la note : l'article redevient « non noté » dans cette requête."""
+    conn.execute(
+        "DELETE FROM article_ratings WHERE query_id = ? AND pmid = ?",
+        (query_id, pmid),
+    )
+
+
+def ratings_for_query(conn: sqlite3.Connection, query_id: int) -> dict[str, int]:
+    """Notes d'une requête, par PMID."""
+    rows = conn.execute(
+        "SELECT pmid, rating FROM article_ratings WHERE query_id = ?", (query_id,)
+    ).fetchall()
+    return {row["pmid"]: row["rating"] for row in rows}
 
 
 # --- État de l'application ----------------------------------------------

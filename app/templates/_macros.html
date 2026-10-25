@@ -6,3 +6,10 @@
     <span class="badge nc" title="Revue absente du classement Scimago">non classée</span>
   {%- endif -%}
 {%- endmacro %}
+
+{# Note de pertinence donnée dans la requête courante. Rien si non noté. #}
+{% macro badge_note(rating) -%}
+  {%- if rating -%}
+    <span class="badge note n{{ rating }}" title="Ta note dans cette requête">{{ rating }} · {{ rating_labels[rating] }}</span>
+  {%- endif -%}
+{%- endmacro %}

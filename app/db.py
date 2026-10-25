@@ -173,9 +173,14 @@ def backup_db(db_path: Path) -> Path:
     return destination
 
 
+def relevance_enabled() -> bool:
+    """Drapeau ENABLE_RELEVANCE, lu à l'appel : un seul point à détourner en test."""
+    return settings.enable_relevance
+
+
 def _relevance_tables_missing(conn: sqlite3.Connection) -> bool:
     """Vrai si la couche pertinence est activée mais ses tables absentes."""
-    return settings.enable_relevance and not all(
+    return relevance_enabled() and not all(
         _table_exists(conn, table) for table in RELEVANCE_TABLES
     )
 

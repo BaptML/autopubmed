@@ -23,7 +23,7 @@ from fastapi.templating import Jinja2Templates
 
 from app import citation, repo
 from app.config import PROJECT_ROOT, settings
-from app.db import connect, init_db
+from app.db import connect, init_db, relevance_enabled
 from app.llm import OllamaClient
 from app.pubmed import PubMedClient
 from app.refresh import refresh_query
@@ -96,6 +96,10 @@ templates.env.filters["date_courte"] = date_courte
 # pas Ollama ici : un service démarré après l'application doit rester
 # utilisable sans redémarrer, et un service arrêté donne un message clair.
 templates.env.globals["llm_summary_enabled"] = settings.enable_llm_summary
+# Fonction et non valeur : les gabarits lisent le drapeau à chaque rendu, comme
+# le dépôt, et les tests peuvent le basculer.
+templates.env.globals["relevance_enabled"] = relevance_enabled
+templates.env.globals["rating_labels"] = repo.RATING_LABELS
 
 
 def get_db() -> Iterator[sqlite3.Connection]:
@@ -494,6 +498,34 @@ async def toggle_favorite(
         else repo.get_article_row_anywhere(conn, pmid)
     )
     return _row_and_sidebar(request, conn, article)
+
+
+@app.post("/articles/{pmid}/rating", response_class=HTMLResponse)
+def rate_article(
+    request: Request,
+    pmid: str,
+    query_id: int = Form(...),
+    rating: int = Form(...),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> HTMLResponse:
+    """Note l'article de 1 à 3 dans cette requête ; 0 retire la note.
+
+    Appelé depuis l'encart : le résumé y est déjà affiché, donc en cache.
+    """
+    if not relevance_enabled():
+        raise HTTPException(status_code=404, detail="Notation désactivée")
+    if rating != 0 and rating not in repo.RATINGS:
+        raise HTTPException(status_code=422, detail="Note attendue : 0, 1, 2 ou 3")
+    if repo.get_article_row(conn, query_id, pmid) is None:
+        raise HTTPException(status_code=404, detail="Article introuvable")
+    if rating:
+        repo.set_rating(conn, query_id, pmid, rating)
+    else:
+        repo.clear_rating(conn, query_id, pmid)
+    conn.commit()
+    return _panel_row_sidebar(
+        request, conn, query_id, pmid, repo.get_abstract(conn, pmid), None
+    )
 
 
 def _new_context(conn: sqlite3.Connection, offset: int = 0) -> dict[str, Any]:
