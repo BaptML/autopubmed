@@ -21,7 +21,7 @@ from datetime import date
 
 import httpx
 
-from app import repo
+from app import relevance, repo
 from app.db import get_conn, init_db
 from app.models import ArticleSummary, JournalQuality, SavedQuery
 from app.openalex import OpenAlexClient
@@ -204,6 +204,10 @@ async def refresh_query(
 
     # 6. Marquer.
     repo.mark_refreshed(conn, query.id)
+
+    # 7. Prédire la pertinence des nouveaux venus. Après le rattachement, et
+    #    sans effet sur lui : la couche pertinence ne s'applique qu'à l'affichage.
+    relevance.recompute_scores(conn, query.id)
     return report
 
 

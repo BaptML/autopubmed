@@ -521,6 +521,56 @@ body.redimensionne { cursor: col-resize; user-select: none; }
 .badge.nc { background: none; color: var(--unranked); border: 1px solid var(--color-divider); }
 /* Apparu depuis l'ouverture précédente de l'application. */
 .badge.nouveau { background: var(--color-accent); }
+/* Note de pertinence : contour seul, pour ne pas se confondre avec le
+   quartile, qui qualifie la revue et non l'article. */
+.badge.note { background: none; border: 1px solid currentColor; }
+.badge.note.n3 { color: var(--color-accent-700); }
+.badge.note.n2 { color: var(--ink-55); }
+.badge.note.n1 { color: var(--q4); }
+/* Prédiction : pointillé, pour qu'on ne la prenne pas pour sa propre note. */
+.badge.prediction { background: none; color: var(--ink-55); border: 1px dashed var(--color-divider); text-transform: none; }
+
+/* Jauge d'apprentissage dans la barre de liste. */
+.apprentissage { color: var(--ink-45); }
+.apprentissage.pret { color: var(--color-accent-700); }
+
+/* Masquage par pertinence : la bascule suit celle des favoris ; un article
+   masqué mais réaffiché est atténué, pour qu'on sache pourquoi il était caché. */
+.bascule-masques.actif { color: var(--color-accent-700); border-color: currentColor; }
+.article.masque { opacity: 0.55; }
+.article.masque:hover { opacity: 1; }
+
+/* Explication de la prédiction : deux lignes au plus, le titre voisin est
+   parfois long. */
+.encart-prediction {
+  margin: calc(-1 * var(--space-2)) 0 var(--space-4);
+  font-size: 12px;
+  color: var(--ink-55);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Choix de la note dans l'encart. La note active est pleine. */
+.encart-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-4) 0;
+}
+.encart-note .etiquette {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-55);
+  margin-right: var(--space-1);
+}
+.note-choix.actif { color: var(--color-bg); background: var(--color-accent-700); border-color: var(--color-accent-700); }
+.note-choix.n2.actif { background: var(--ink-70); border-color: transparent; }
+.note-choix.n1.actif { background: var(--q4); border-color: var(--q4); }
 
 /* --- Encart de lecture --- */
 
@@ -622,6 +672,11 @@ body.redimensionne { cursor: col-resize; user-select: none; }
 /* Les deux résumés se partagent la hauteur : sans cela, l'original garderait
    sa pleine taille et pousserait le pied de l'encart hors de l'écran. */
 .encart:has(.encart-resume-fr) .encart-resume { max-height: calc(100vh - 620px); }
+/* Même partage quand la ligne de notation s'ajoute au-dessus du résumé. */
+.encart:has(.encart-note) .encart-resume { max-height: calc(100vh - 470px); }
+.encart:has(.encart-note):has(.encart-resume-fr) .encart-resume { max-height: calc(100vh - 670px); }
+.encart:has(.encart-prediction) .encart-resume { max-height: calc(100vh - 505px); }
+.encart:has(.encart-prediction):has(.encart-resume-fr) .encart-resume { max-height: calc(100vh - 705px); }
 
 .encart-pied { display: flex; flex-wrap: wrap; gap: var(--space-2); }
 .encart-pied .bouton { flex: 1 1 140px; text-decoration: none; }
@@ -775,6 +830,13 @@ body.redimensionne { cursor: col-resize; user-select: none; }
 }
 .revue-titre { flex: 1; }
 code.a-copier { user-select: all; white-space: nowrap; }  /* un clic sélectionne tout le fragment */
+
+/* --- Suggestions de termes --- */
+
+.suggestions { margin-top: 0; }
+.suggestions .etiquette-liste { display: block; margin-top: var(--space-4); }
+.suggestions .liste-revues { margin-top: var(--space-1); }
+.suggestions .liste-revues .aide { margin: 0 0 0 auto; white-space: nowrap; }
 
 /* Indicateur de chargement HTMX */
 .htmx-indicator { opacity: 0; transition: opacity .2s; }

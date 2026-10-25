@@ -36,6 +36,35 @@
     {% endif %}
   </div>
 
+  {# Note propre à la requête ouverte. Re-cliquer la note active la retire. #}
+  {% if relevance_enabled() %}
+    <div class="encart-note" role="group" aria-label="Pertinence dans cette requête">
+      <span class="etiquette">Pertinence ici</span>
+      {% for valeur, libelle in rating_labels.items() %}
+        {% set actif = article.rating == valeur %}
+        <button class="bouton mono note-choix n{{ valeur }}{{ ' actif' if actif }}"
+                hx-post="/articles/{{ article.pmid }}/rating"
+                hx-vals='{"query_id": {{ article.query_id }}, "rating": {{ 0 if actif else valeur }}}'
+                hx-target="#encart" hx-swap="innerHTML"
+                aria-pressed="{{ 'true' if actif else 'false' }}"
+                title="{{ 'Retirer la note' if actif else 'Noter ' ~ valeur ~ ' : ' ~ libelle }}">
+          {{ valeur }} · {{ libelle }}
+        </button>
+      {% endfor %}
+    </div>
+    {% if explanation %}
+      <p class="encart-prediction">
+        Prédiction ≈ {{ macros.note_predite(explanation.score) }}
+        {% if explanation.neighbor_title %}
+          · proche de « {{ explanation.neighbor_title }} »
+          (noté {{ explanation.neighbor_rating }})
+        {% else %}
+          · aucun terme commun avec tes articles notés : moyenne de la requête
+        {% endif %}
+      </p>
+    {% endif %}
+  {% endif %}
+
   <div class="titre-cadre">Résumé</div>
   <div class="encart-resume">
     {% include "_abstract.html" %}

@@ -6,3 +6,24 @@
     <span class="badge nc" title="Revue absente du classement Scimago">non classée</span>
   {%- endif -%}
 {%- endmacro %}
+
+{# Note prédite, au dixième et à la française : « 2,6 ». #}
+{% macro note_predite(score) -%}
+  {{ "%.1f"|format(score)|replace(".", ",") }}
+{%- endmacro %}
+
+{# Pertinence prédite d'un article que l'utilisateur n'a pas encore noté. #}
+{% macro badge_prediction(score) -%}
+  {#- `number` et non `not none` : les vues sans colonne de prédiction
+      (recherche, bibliographie) rendent une valeur indéfinie. -#}
+  {%- if score is number -%}
+    <span class="badge prediction" title="Pertinence prédite d'après tes notes dans cette requête (1 à 3)">≈ {{ note_predite(score) }}</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{# Note de pertinence donnée dans la requête courante. Rien si non noté. #}
+{% macro badge_note(rating) -%}
+  {%- if rating -%}
+    <span class="badge note n{{ rating }}" title="Ta note dans cette requête">{{ rating }} · {{ rating_labels[rating] }}</span>
+  {%- endif -%}
+{%- endmacro %}

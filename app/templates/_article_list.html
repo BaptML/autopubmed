@@ -1,3 +1,5 @@
+{% import "_macros.html" as macros %}
+
 {# `unread` et `total` viennent de la base et non de la page affichée : la liste
    se charge par tranches, les compter ici ne dirait que la première. #}
 
@@ -24,7 +26,7 @@
       </div>
       <div class="barre-actions compacte">
         <button class="bouton" hx-post="/queries/{{ query.id }}/refresh"
-                hx-vals='{"favorites": {{ 1 if favorites_only else 0 }}}'
+                hx-vals='{"favorites": {{ 1 if favorites_only else 0 }}, "show_hidden": {{ 1 if show_hidden else 0 }}}'
                 hx-target="#panneau" hx-swap="innerHTML"
                 hx-indicator="#indicateur-refresh"
                 hx-disabled-elt="this">Rafraîchir</button>
@@ -44,6 +46,7 @@
       {% if query.quartile_min %}quartile ≤ Q{{ query.quartile_min }}{% else %}quartile libre{% endif %}
       · {% if query.citedness_min %}citedness ≥ {{ query.citedness_min }}{% else %}citedness libre{% endif %}
       · {% if query.max_age_years %}publié depuis moins de {{ query.max_age_years }} an{{ 's' if query.max_age_years > 1 }}{% else %}toutes années{% endif %}
+      {% if hide_below is not none %}· affichage : masqué sous {{ macros.note_predite(hide_below) }} de pertinence{% endif %}
     </div>
   </details>
 
@@ -68,11 +71,36 @@
   <div class="colonne-articles">
     <div class="barre-liste">
       <span class="mono etiquette-liste">Articles</span>
+      {# Jauge du modèle de pertinence : combien de notes, et ce qui manque. #}
+      {% if learning %}
+        {% if learning.ready %}
+          <span class="mono etiquette-liste apprentissage pret"
+                title="Les articles non notés reçoivent une pertinence prédite">
+            Pertinence apprise · {{ learning.count }} notes
+          </span>
+        {% else %}
+          <span class="mono etiquette-liste apprentissage"
+                title="Il manque {{ learning.missing }} pour prédire la pertinence">
+            Apprentissage · {{ learning.count }}/{{ learning.needed }} notes
+          </span>
+        {% endif %}
+      {% endif %}
       {# Toujours rendu, désactivé quand il n'y a rien à marquer : une commande
          qui disparaît est une commande qu'on ne retrouve pas. #}
+      {# Masquage par pertinence : le compteur reste visible tant qu'un seuil
+         est posé, même à zéro — ce qui est caché ne doit jamais l'être en
+         silence. Même mécanique que la bascule des favoris. #}
+      {% if hide_below is not none %}
+        <button class="bouton mono bascule-masques{{ ' actif' if show_hidden }}"
+                hx-get="/queries/{{ query.id }}/articles?{{ 'favorites=1&' if favorites_only }}{{ '' if show_hidden else 'show_hidden=1' }}"
+                hx-target="#panneau" hx-swap="innerHTML"
+                title="Articles dont la note ou la prédiction est sous {{ macros.note_predite(hide_below) }}">
+          {{ hidden_count }} masqué{{ 's' if hidden_count > 1 }} · {{ "masquer" if show_hidden else "afficher" }}
+        </button>
+      {% endif %}
       {# Bascule du filtre : le lien pointe vers l'état inverse de l'actuel. #}
       <button class="bouton mono bascule-favoris{{ ' actif' if favorites_only }}"
-              hx-get="/queries/{{ query.id }}/articles{{ '' if favorites_only else '?favorites=1' }}"
+              hx-get="/queries/{{ query.id }}/articles?{{ '' if favorites_only else 'favorites=1&' }}{{ 'show_hidden=1' if show_hidden }}"
               hx-target="#panneau" hx-swap="innerHTML"
               title="N'afficher que les articles de la bibliographie">
         {{ "★ favoris seulement" if favorites_only else "☆ favoris seulement" }}
@@ -80,7 +108,7 @@
       <button class="bouton mono accent tout-lu"
               {% if not unread %}disabled title="Tous les articles de cette requête sont déjà lus"{% endif %}
               hx-post="/queries/{{ query.id }}/read-all"
-              hx-vals='{"favorites": {{ 1 if favorites_only else 0 }}}'
+              hx-vals='{"favorites": {{ 1 if favorites_only else 0 }}, "show_hidden": {{ 1 if show_hidden else 0 }}}'
               hx-target="#panneau" hx-swap="innerHTML"
               hx-confirm="Marquer les {{ unread }} article{{ 's' if unread > 1 }} non lu{{ 's' if unread > 1 }} de cette requête comme lus ?">
         Tout marquer comme lu
@@ -88,7 +116,12 @@
     </div>
 
     {% if not articles %}
-      {% if favorites_only %}
+      {% if hidden_count %}
+        <p class="vide-message">
+          Tous les articles de cette liste sont masqués par la pertinence.<br>
+          « {{ hidden_count }} masqué{{ 's' if hidden_count > 1 }} · afficher » les fait réapparaître.
+        </p>
+      {% elif favorites_only %}
         <p class="vide-message">
           Aucun favori dans cette requête.<br>
           Étoile un article pour le retrouver dans ta bibliographie.

@@ -21,9 +21,9 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from app import citation, repo
+from app import citation, relevance, repo
 from app.config import PROJECT_ROOT, settings
-from app.db import connect, init_db
+from app.db import connect, init_db, relevance_enabled
 from app.llm import OllamaClient
 from app.pubmed import PubMedClient
 from app.refresh import refresh_query
@@ -96,6 +96,10 @@ templates.env.filters["date_courte"] = date_courte
 # pas Ollama ici : un service démarré après l'application doit rester
 # utilisable sans redémarrer, et un service arrêté donne un message clair.
 templates.env.globals["llm_summary_enabled"] = settings.enable_llm_summary
+# Fonction et non valeur : les gabarits lisent le drapeau à chaque rendu, comme
+# le dépôt, et les tests peuvent le basculer.
+templates.env.globals["relevance_enabled"] = relevance_enabled
+templates.env.globals["rating_labels"] = repo.RATING_LABELS
 
 
 def get_db() -> Iterator[sqlite3.Connection]:
@@ -128,6 +132,66 @@ def _sidebar_context(conn: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
+def _learning_context(conn: sqlite3.Connection, query_id: int) -> dict[str, Any]:
+    """Jauge d'apprentissage et seuil de masquage. None si la couche est éteinte."""
+    if not relevance_enabled():
+        return {"learning": None, "hide_below": None}
+    return {
+        "learning": relevance.learning_status(repo.ratings_for_query(conn, query_id)),
+        "hide_below": repo.get_hide_below(conn, query_id),
+    }
+
+
+def _list_params(favorites_only: bool, show_hidden: bool) -> str:
+    """Paramètres d'URL qui définissent la liste affichée, pour la page suivante."""
+    return ("favorites=1&" if favorites_only else "") + (
+        "show_hidden=1&" if show_hidden else ""
+    )
+
+
+def _list_context(
+    conn: sqlite3.Connection,
+    query: Any,
+    *,
+    favorites_only: bool,
+    show_hidden: bool,
+    offset: int,
+) -> dict[str, Any]:
+    """Contexte d'une liste de requête : articles, compteurs, pagination.
+
+    Partagé par l'ouverture, le rafraîchissement et « tout marquer comme lu »,
+    pour que le masquage s'applique partout de la même façon.
+    """
+    return {
+        "query": query,
+        "articles": repo.list_articles_for_query(
+            conn,
+            query.id,
+            query.sort,
+            max_age_years=query.max_age_years,
+            favorites_only=favorites_only,
+            limit=repo.PAGE_SIZE,
+            offset=offset,
+            show_hidden=show_hidden,
+        ),
+        "favorites_only": favorites_only,
+        "show_hidden": show_hidden,
+        "unread": repo.count_unread(conn, query.id, show_hidden),
+        "hidden_count": repo.count_hidden_for_query(
+            conn, query.id, query.max_age_years, favorites_only
+        ),
+        **_learning_context(conn, query.id),
+        **_pagination(
+            repo.count_articles_for_query(
+                conn, query.id, query.max_age_years, favorites_only, show_hidden
+            ),
+            offset=offset,
+            url_suite=f"/queries/{query.id}/articles?"
+            + _list_params(favorites_only, show_hidden),
+        ),
+    }
+
+
 def _pagination(total: int, offset: int, url_suite: str) -> dict[str, Any]:
     """Ce dont `_charger_la_suite.html` a besoin pour proposer la page suivante.
 
@@ -147,6 +211,7 @@ def _panel_and_sidebar(
     query_id: int,
     report: Any = None,
     favorites_only: bool = False,
+    show_hidden: bool = False,
 ) -> HTMLResponse:
     """Renvoie la liste d'articles et la barre latérale mise à jour."""
     query = repo.get_query(conn, query_id)
@@ -156,26 +221,14 @@ def _panel_and_sidebar(
         request,
         "_panel_and_sidebar.html",
         {
-            "query": query,
-            "articles": repo.list_articles_for_query(
+            **_list_context(
                 conn,
-                query_id,
-                query.sort,
-                max_age_years=query.max_age_years,
+                query,
                 favorites_only=favorites_only,
-                limit=repo.PAGE_SIZE,
-            ),
-            "favorites_only": favorites_only,
-            "report": report,
-            "unread": repo.count_unread(conn, query_id),
-            **_pagination(
-                repo.count_articles_for_query(
-                    conn, query_id, query.max_age_years, favorites_only
-                ),
+                show_hidden=show_hidden,
                 offset=0,
-                url_suite=f"/queries/{query_id}/articles?"
-                + (f"favorites={int(favorites_only)}&" if favorites_only else ""),
             ),
+            "report": report,
             **_sidebar_context(conn),
         },
     )
@@ -202,10 +255,16 @@ def sidebar(
 def new_query_form(
     request: Request, conn: sqlite3.Connection = Depends(get_db)
 ) -> HTMLResponse:
+    # Une requête neuve n'a aucune note : le masquage y est d'abord inactif.
     return templates.TemplateResponse(
         request,
         "_query_form.html",
-        {"query": None, "folders": repo.list_folders(conn)},
+        {
+            "query": None,
+            "folders": repo.list_folders(conn),
+            "learning": relevance.learning_status({}) if relevance_enabled() else None,
+            "hide_below": None,
+        },
     )
 
 
@@ -215,6 +274,7 @@ def query_articles(
     query_id: int,
     favorites: int = 0,
     offset: int = 0,
+    show_hidden: int = 0,
     conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
     """Fragment de liste d'articles, lu depuis le cache.
@@ -232,29 +292,15 @@ def query_articles(
         # Les pages suivantes ne rouvrent rien, elles poursuivent la lecture.
         repo.record_visit(conn, query_id)
 
-    articles = repo.list_articles_for_query(
-        conn,
-        query_id,
-        query.sort,
-        max_age_years=query.max_age_years,
-        favorites_only=bool(favorites),
-        limit=repo.PAGE_SIZE,
-        offset=offset,
-    )
     contexte = {
-        "query": query,
-        "articles": articles,
-        "favorites_only": bool(favorites),
-        "report": None,
-        "unread": repo.count_unread(conn, query_id),
-        **_pagination(
-            repo.count_articles_for_query(
-                conn, query_id, query.max_age_years, bool(favorites)
-            ),
+        **_list_context(
+            conn,
+            query,
+            favorites_only=bool(favorites),
+            show_hidden=bool(show_hidden),
             offset=offset,
-            url_suite=f"/queries/{query_id}/articles?"
-            + (f"favorites={favorites}&" if favorites else ""),
         ),
+        "report": None,
     }
     if offset:
         return templates.TemplateResponse(request, "_articles_page.html", contexte)
@@ -275,11 +321,32 @@ def edit_query_form(
     return templates.TemplateResponse(
         request,
         "_query_form.html",
-        {"query": query, "folders": repo.list_folders(conn)},
+        {
+            "query": query,
+            "folders": repo.list_folders(conn),
+            **_learning_context(conn, query_id),
+            "suggestions": relevance.suggestions_for_query(conn, query_id),
+        },
     )
 
 
 # --- Écriture -------------------------------------------------------------
+
+
+def _save_hide_below(conn: sqlite3.Connection, query_id: int, raw: str | None) -> None:
+    """Enregistre le seuil de masquage, champ séparé de la chaîne PubMed.
+
+    Champ absent (couche éteinte, ou menu désactivé tant que le modèle
+    apprend) : le réglage en place n'est pas touché. « Ne rien masquer » a donc
+    sa propre valeur, `aucun` : FastAPI ramène un champ vide à `None`, et on
+    ne le distinguerait plus d'un champ absent.
+    """
+    if raw is None or not relevance_enabled():
+        return
+    try:
+        repo.set_hide_below(conn, query_id, None if raw == "aucun" else float(raw))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/queries/new", response_class=HTMLResponse)
@@ -292,6 +359,7 @@ def create_query(
     citedness_min: str = Form(""),
     max_age_years: str = Form(""),
     sort: str = Form("date_desc"),
+    hide_below: str | None = Form(None),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
     """Enregistre une requête. La chaîne PubMed est stockée telle quelle."""
@@ -305,6 +373,7 @@ def create_query(
         max_age_years=_optional_int(max_age_years),
         sort=sort,
     )
+    _save_hide_below(conn, query_id, hide_below)
     return _panel_and_sidebar(request, conn, query_id)
 
 
@@ -319,6 +388,7 @@ def save_query(
     citedness_min: str = Form(""),
     max_age_years: str = Form(""),
     sort: str = Form("date_desc"),
+    hide_below: str | None = Form(None),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
     if repo.get_query(conn, query_id) is None:
@@ -334,6 +404,7 @@ def save_query(
         max_age_years=_optional_int(max_age_years),
         sort=sort,
     )
+    _save_hide_below(conn, query_id, hide_below)
     return _panel_and_sidebar(request, conn, query_id)
 
 
@@ -351,6 +422,7 @@ async def refresh(
     request: Request,
     query_id: int,
     favorites: int = Form(0),
+    show_hidden: int = Form(0),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
     """Rafraîchissement à chaud, à la demande explicite de l'utilisateur."""
@@ -361,7 +433,12 @@ async def refresh(
         report = await refresh_query(conn, query, pubmed=pubmed)
     conn.commit()
     return _panel_and_sidebar(
-        request, conn, query_id, report=report, favorites_only=bool(favorites)
+        request,
+        conn,
+        query_id,
+        report=report,
+        favorites_only=bool(favorites),
+        show_hidden=bool(show_hidden),
     )
 
 
@@ -370,12 +447,19 @@ def mark_all_read(
     request: Request,
     query_id: int,
     favorites: int = Form(0),
+    show_hidden: int = Form(0),
     conn: sqlite3.Connection = Depends(get_db),
 ) -> HTMLResponse:
     """Marque lus tous les articles de la requête courante, et d'elle seule."""
-    repo.mark_all_read(conn, query_id)
+    repo.mark_all_read(conn, query_id, show_hidden=bool(show_hidden))
     conn.commit()
-    return _panel_and_sidebar(request, conn, query_id, favorites_only=bool(favorites))
+    return _panel_and_sidebar(
+        request,
+        conn,
+        query_id,
+        favorites_only=bool(favorites),
+        show_hidden=bool(show_hidden),
+    )
 
 
 def _row_and_sidebar(
@@ -414,6 +498,7 @@ def _panel_row_sidebar(
             "error": error,
             "summary": summary,
             "summary_model": summary_model,
+            "explanation": relevance.explain(conn, query_id, pmid),
             **_sidebar_context(conn),
         },
     )
@@ -494,6 +579,37 @@ async def toggle_favorite(
         else repo.get_article_row_anywhere(conn, pmid)
     )
     return _row_and_sidebar(request, conn, article)
+
+
+@app.post("/articles/{pmid}/rating", response_class=HTMLResponse)
+def rate_article(
+    request: Request,
+    pmid: str,
+    query_id: int = Form(...),
+    rating: int = Form(...),
+    conn: sqlite3.Connection = Depends(get_db),
+) -> HTMLResponse:
+    """Note l'article de 1 à 3 dans cette requête ; 0 retire la note.
+
+    Appelé depuis l'encart : le résumé y est déjà affiché, donc en cache.
+    """
+    if not relevance_enabled():
+        raise HTTPException(status_code=404, detail="Notation désactivée")
+    if rating != 0 and rating not in repo.RATINGS:
+        raise HTTPException(status_code=422, detail="Note attendue : 0, 1, 2 ou 3")
+    if repo.get_article_row(conn, query_id, pmid) is None:
+        raise HTTPException(status_code=404, detail="Article introuvable")
+    if rating:
+        repo.set_rating(conn, query_id, pmid, rating)
+    else:
+        repo.clear_rating(conn, query_id, pmid)
+    # Chaque note réentraîne le modèle de la requête : les badges de la liste
+    # suivront à son prochain affichage.
+    relevance.recompute_scores(conn, query_id)
+    conn.commit()
+    return _panel_row_sidebar(
+        request, conn, query_id, pmid, repo.get_abstract(conn, pmid), None
+    )
 
 
 def _new_context(conn: sqlite3.Connection, offset: int = 0) -> dict[str, Any]:
