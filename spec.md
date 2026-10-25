@@ -56,9 +56,24 @@ fines encapsulent les accès SQLite.
 4. **La chaîne PubMed brute est la source de vérité** stockée pour chaque
    requête. C'est elle, réexécutée, qui redonne le résultat.
 
+5. **Couche pertinence : une troisième couche, séparée des deux autres.**
+   - L'utilisateur note chaque article de 1 à 3 **dans une requête donnée**
+     (1 = hors sujet, 2 = secondaire, 3 = pertinent) ; un même article peut
+     être central dans une requête et hors sujet dans une autre.
+   - Ces notes servent à **trier** et à **masquer de façon réversible**, à
+     l'affichage seulement : le pipeline rattache toujours tous les articles
+     qui passent la qualité, rien n'est supprimé.
+   - Elle n'entre jamais dans la chaîne PubMed. Les termes qu'elle suggère
+     sont affichés, à recopier par l'utilisateur ; l'aperçu ESearch en mesure
+     l'effet.
+   - Elle ne réadmet rien : un article écarté par la qualité ne revient pas
+     parce qu'il serait jugé pertinent.
+   - Drapeau `ENABLE_RELEVANCE` (défaut 1) : à 0, l'interface et les listes
+     sont celles d'avant la fonction ; les notes restent en base.
+
 ## 4. Modèle de données (SQLite)
 
-Quatre tables.
+Tables principales (`schema.sql`) :
 
 ### `queries`
 | champ | type | note |
@@ -69,7 +84,7 @@ Quatre tables.
 | pubmed_query | TEXT | **la chaîne PubMed brute** |
 | quartile_min | INTEGER NULL | 1–4 ; NULL = pas de filtre quartile |
 | citedness_min | REAL NULL | seuil OpenAlex ; NULL = pas de filtre |
-| sort | TEXT | tri d'affichage (ex. `date_desc`) |
+| sort | TEXT | tri d'affichage : `date_desc`, `date_asc`, `journal`, `relevance` |
 | created_at | TEXT | ISO 8601 |
 | last_refreshed_at | TEXT NULL | ISO 8601 |
 
@@ -105,6 +120,42 @@ PK composite `(query_id, pmid)`.
 | citedness | REAL NULL | OpenAlex `2yr_mean_citedness` |
 | source | TEXT | `scimago` ou `openalex` |
 | updated_at | TEXT | ISO 8601 |
+
+### Couche pertinence (`schema_relevance.sql`)
+
+Trois tables **ajoutées**, dans un fichier à part : aucune table ni colonne
+existante n'est modifiée, une base migrée reste lisible par le code d'avant.
+La migration est précédée d'une sauvegarde automatique dans `data/backups/`.
+Clés étrangères `ON DELETE CASCADE` vers `queries` et `articles`.
+
+#### `article_ratings`
+| champ | type | note |
+|---|---|---|
+| query_id | INTEGER | FK queries |
+| pmid | TEXT | FK articles |
+| rating | INTEGER | 1–3 (`CHECK`) |
+| rated_at | TEXT | ISO 8601 |
+
+PK composite `(query_id, pmid)`.
+
+#### `relevance_scores` (donnée dérivée, reconstructible)
+| champ | type | note |
+|---|---|---|
+| query_id | INTEGER | FK queries |
+| pmid | TEXT | FK articles |
+| score | REAL | pertinence prédite, échelle 1–3 |
+| computed_at | TEXT | ISO 8601 |
+
+PK composite `(query_id, pmid)`.
+
+#### `relevance_settings`
+| champ | type | note |
+|---|---|---|
+| query_id | INTEGER PK | FK queries |
+| hide_below | REAL NULL | seuil de masquage ; NULL = rien n'est masqué |
+
+Table à part plutôt que colonne de `queries`, pour ne pas toucher à une table
+existante.
 
 ## 5. Sources de données externes
 
@@ -152,6 +203,23 @@ Fonction cœur. L'UI ne fait que lire ; tout le travail est ici.
 5. **Persister** : upsert dans `articles` ; upsert dans `query_articles` avec
    `first_seen = now` et `read = 0` pour les paires nouvelles.
 6. **Marquer** : mettre à jour `query.last_refreshed_at`.
+7. **Prédire la pertinence** (si `ENABLE_RELEVANCE`) : recalculer
+   `relevance_scores` pour la requête. Cette étape vient après le rattachement
+   et n'a aucun effet sur lui.
+
+**Moteur de prédiction** (`app/relevance.py`, sans dépendance) :
+- représentation : titre + revue, minuscules, sans diacritiques, sans mots
+  vides, unigrammes et bigrammes, pondérés TF-IDF sur les articles de la
+  requête. Le résumé n'est pas utilisé : il n'est en cache que pour les
+  articles ouverts, la comparaison serait faussée ;
+- prédiction : k = 10 plus proches voisins notés (cosinus), moyenne pondérée
+  tirée vers la note moyenne de la requête :
+  `score = (Σ sim·note + α·moyenne) / (Σ sim + α)`, α = 0,5 ;
+- un article noté a pour score sa note : le modèle ne contredit jamais
+  l'utilisateur ;
+- démarrage à froid : aucune prédiction tant que la requête n'a pas 8 notes
+  dont au moins un 3 et au moins un 1 ou 2 ;
+- recalcul aussi après chaque changement de note.
 
 **Résumés à la demande** : `articles.abstract` reste NULL jusqu'à ce que
 l'utilisateur déplie l'article. À ce moment, `efetch` récupère le résumé, qui
@@ -202,7 +270,36 @@ est ensuite mis en cache. Cela garde le rafraîchissement rapide et poli.
 - `GET|POST /queries/new`, `GET|POST /queries/{id}/edit` : formulaire de création.
 - `GET /preview?term=<...>` : fragment d'aperçu live (esearch).
 
+- `POST /articles/{pmid}/rating` : note 1–3 dans une requête (`query_id`),
+  0 la retire.
+
 Tous les échanges renvoient des **fragments HTML** échangés par HTMX.
+
+### Couche pertinence (si `ENABLE_RELEVANCE`)
+- **Encart de lecture** : trois boutons « hors sujet / secondaire /
+  pertinent », propres à la requête ouverte ; re-cliquer la note active la
+  retire. Sous eux, le voisin qui explique la prédiction (« proche de :
+  <titre>, noté 3 »).
+- **Ligne d'article** : badge de la note, ou de la prédiction (« ≈ 2,6 »)
+  pour un article non noté.
+- **En-tête de liste** : jauge « Apprentissage · n/8 notes » tant que le
+  modèle n'est pas prêt ; « N masqués · afficher » (`?show_hidden=1`) quand
+  un seuil masque des articles, les lignes réaffichées étant atténuées.
+- **Formulaire de requête** :
+  - tri « Pertinence » : la note d'abord, la prédiction à défaut, puis la
+    date ; sans note ni prédiction, c'est le tri par date ;
+  - champ séparé « Masquer les peu pertinents » (rien, < 1,5, < 2, < 2,5) :
+    inactif tant que le modèle apprend, toujours réversible une fois posé ;
+  - bloc repliable « Affiner la chaîne d'après tes notes » : termes qui
+    distinguent les titres notés 3 des titres notés 1 (log-odds lissé, au
+    moins deux titres du côté suggéré), en fragments prêts à copier
+    (`AND "x"[tiab]`, `NOT "y"[tiab]`). Rien n'est inséré dans la chaîne.
+- **Masquage** : un article est masqué si sa note, ou à défaut sa prédiction,
+  est sous le seuil ; sans note ni prédiction, il n'est jamais masqué. Une
+  seule expression SQL décide du masquage pour la liste, son comptage, les
+  non-lus de la barre latérale et le flux des nouveautés, pour que les
+  compteurs ne contredisent pas la liste. « Tout marquer comme lu » ne touche
+  que ce qui est affiché.
 
 ## 9. Critères d'acceptation
 
@@ -214,6 +311,10 @@ Deux requêtes de référence servent de tests de bout en bout :
 - **Requête B — NEJM / RCT** : `"N Engl J Med"[ta] AND randomized controlled
   trial[pt]`, sans filtre qualité. *Attendu* : uniquement des articles de
   *N Engl J Med*, tous de type essai randomisé.
+
+Avec la couche pertinence, notation et masquage actifs, A ne montre toujours
+que du Q1 et B que du *N Engl J Med* ; retirer le seuil de masquage rend le
+total d'avant.
 
 ## 10. Découpage en phases suggéré
 
@@ -234,4 +335,6 @@ requêtes A et B dès qu'elles sont exécutables).
 - Pas de parsing/validation locale de la syntaxe PubMed.
 - Pas d'application ou d'agrégateur tiers.
 - Pas de mélange des filtres qualité dans la chaîne PubMed.
+- Pas d'insertion automatique des termes suggérés par la pertinence dans la
+  chaîne PubMed.
 - Pas d'authentification multi-utilisateur (usage personnel, réseau local).
