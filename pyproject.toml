@@ -1,6 +1,6 @@
 [project]
 name = "autopubmed"
-version = "0.1.0"
+version = "0.2.0"
 description = "AutoPubMed — lecteur de veille bibliographique médicale, local et auto-hébergé"
 requires-python = ">=3.12"
 dependencies = [
