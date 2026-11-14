@@ -1,6 +1,7 @@
 """Tests des fragments HTML servis à HTMX, sur une base temporaire."""
 
 from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -547,6 +548,51 @@ def test_rafraichir_sans_reseau_affiche_l_erreur(
     assert response.status_code == 200
     assert "PubMed n&#39;a pas répondu" in response.text
     assert "Semaglutide in Heart Failure" in response.text  # la liste reste là
+
+
+def test_rafraichir_signale_les_resultats_non_examines(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Le faux client annonce 1234 résultats et n'en rapporte aucun.
+    monkeypatch.setattr("app.main.PubMedClient", lambda: FakePubMedClient())
+    response = client.post(f"/queries/{client.query_id}/refresh")
+    assert "Seuls les 0 plus récents ont été examinés" in response.text
+
+
+def test_les_non_lus_ignorent_les_articles_hors_dates(client: TestClient) -> None:
+    # Trop ancien pour la requête ou daté dans le futur : absent de la liste,
+    # donc absent des compteurs, et « tout marquer comme lu » n'y touche pas.
+    with get_conn(client.db_path) as conn:
+        query_id = repo.create_query(
+            conn, name="Un an", pubmed_query="x", max_age_years=1
+        )
+        for pmid, pub_date in (
+            ("1", date.today().isoformat()),
+            ("2", "2015-01-01"),
+            ("3", "2999"),
+        ):
+            repo.upsert_article(
+                conn,
+                ArticleSummary(
+                    pmid=pmid,
+                    title=f"Titre {pmid}",
+                    journal="J",
+                    issn=None,
+                    eissn=None,
+                    pub_date=pub_date,
+                ),
+            )
+            repo.link_article(conn, query_id, pmid)
+
+        assert len(repo.list_articles_for_query(conn, query_id, max_age_years=1)) == 1
+        assert repo.count_unread(conn, query_id) == 1
+        barre = {
+            q["id"]: q["unread"]
+            for dossier in repo.folders_with_queries(conn)
+            for q in dossier["queries"]
+        }
+        assert barre[query_id] == 1
+        assert repo.mark_all_read(conn, query_id) == 1
 
 
 def test_apercu_sans_chaine_n_appelle_pas_pubmed(client: TestClient) -> None:

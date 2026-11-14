@@ -348,7 +348,8 @@ def folders_with_queries(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
         f"""
         SELECT q.id, q.name, q.folder, q.last_refreshed_at,
-               COUNT(CASE WHEN qa.read = 0 AND {_relevance_visible()}
+               COUNT(CASE WHEN qa.read = 0 AND {_DATE_VISIBLE}
+                               AND {_relevance_visible()}
                           THEN 1 END) AS unread,
                COUNT(qa.pmid) AS total
         FROM queries q
@@ -534,6 +535,13 @@ _FLUX_AGE_CLAUSE = (
     "OR substr(a.pub_date || '-12-31', 1, 10) >= "
     "date('now', '-' || q.max_age_years || ' years'))"
 )
+
+
+# Dates d'une paire `qa` vues sans jointure : même verdict que la liste
+# (ancienneté de la requête, pas de futur), pour les compteurs de non-lus.
+_DATE_VISIBLE = f"""EXISTS(
+        SELECT 1 FROM articles a JOIN queries q ON q.id = qa.query_id
+        WHERE a.pmid = qa.pmid AND {_FLUX_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE})"""
 
 
 def _flux_where() -> str:
@@ -747,7 +755,7 @@ def set_read(conn: sqlite3.Connection, query_id: int, pmid: str, read: bool) -> 
 
 def _unread_where(show_hidden: bool) -> str:
     """Non-lus d'une requête : ceux que la liste montre, masqués compris ou non."""
-    where = "qa.query_id = ? AND qa.read = 0"
+    where = f"qa.query_id = ? AND qa.read = 0 AND {_DATE_VISIBLE}"
     return where if show_hidden else f"{where} AND {_relevance_visible()}"
 
 
