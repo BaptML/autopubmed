@@ -875,21 +875,7 @@ def replace_scores(
     )
 
 
-# --- État de l'application ----------------------------------------------
-
-
-def get_app_state(conn: sqlite3.Connection, key: str) -> str | None:
-    row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
-    return row["value"] if row else None
-
-
-def set_app_state(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute(
-        "INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
-        "updated_at = excluded.updated_at",
-        (key, value, utcnow_iso()),
-    )
+# --- Repère de visite ---------------------------------------------------
 
 
 def record_visit(

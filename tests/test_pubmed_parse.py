@@ -91,7 +91,6 @@ def test_parse_esummary_entry_extrait_le_doi() -> None:
     summary = parse_esummary_entry(NEJM_ENTRY)
     assert summary is not None
     assert summary.doi == "10.1056/NEJMoa2306963"
-    assert summary.doi_url == "https://doi.org/10.1056/NEJMoa2306963"
 
 
 def test_parse_esummary_entry_extrait_les_metadonnees_de_citation() -> None:
@@ -142,7 +141,6 @@ def test_parse_esummary_entry_sans_doi() -> None:
     summary = parse_esummary_entry({"uid": "42", "title": "T", "source": "Rev"})
     assert summary is not None
     assert summary.doi is None
-    assert summary.doi_url is None
 
 
 def test_parse_esummary_entry_en_erreur() -> None:

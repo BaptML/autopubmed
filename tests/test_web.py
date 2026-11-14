@@ -241,6 +241,14 @@ def test_creation_rafraichit_la_barre_laterale_hors_bande(client: TestClient) ->
     assert "Veille B" in response.text
 
 
+def test_un_nombre_invalide_donne_422_et_non_500(client: TestClient) -> None:
+    response = client.post(
+        "/queries/new",
+        data={"name": "x", "pubmed_query": "x", "citedness_min": "abc"},
+    )
+    assert response.status_code == 422
+
+
 def test_edition_met_a_jour_sans_toucher_aux_articles(client: TestClient) -> None:
     query_id = client.query_id
     response = client.post(
@@ -796,9 +804,15 @@ class FakePubMedClient:
 class FakeOllamaClient:
     """Simule OllamaClient : aucun modèle local n'est sollicité par les tests."""
 
-    def __init__(self, texte: str = "Un résumé français.", en_panne: bool = False):
+    def __init__(
+        self,
+        texte: str = "Un résumé français.",
+        en_panne: bool = False,
+        coupe: bool = False,
+    ):
         self._texte = texte
         self._en_panne = en_panne
+        self._coupe = coupe
         self.calls: list[tuple[str, str]] = []
 
     async def __aenter__(self):
@@ -817,7 +831,7 @@ class FakeOllamaClient:
             eval_count=10,
             eval_seconds=1.0,
             load_seconds=0.0,
-            truncated=False,
+            truncated=self._coupe,
         )
 
 
@@ -884,6 +898,19 @@ def test_un_article_sans_abstract_n_appelle_pas_le_modele(client, monkeypatch) -
     assert reponse.status_code == 200
     assert "Aucun résumé original à synthétiser" in reponse.text
     assert llm.calls == []
+
+
+def test_un_resume_coupe_est_montre_sans_etre_mis_en_cache(
+    avec_abstract, monkeypatch
+) -> None:
+    _brancher_llm(monkeypatch, FakeOllamaClient(coupe=True))
+
+    reponse = avec_abstract.post("/articles/40000001/summary", data={"regenerate": 0})
+
+    assert "Un résumé français." in reponse.text
+    assert "non mis en cache" in reponse.text
+    with get_conn(avec_abstract.db_path) as conn:
+        assert repo.get_summary_fr(conn, "40000001")[0] is None
 
 
 def test_ollama_en_panne_affiche_un_message_et_n_ecrit_rien(

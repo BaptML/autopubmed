@@ -29,11 +29,6 @@ class ArticleSummary:
     def url(self) -> str:
         return f"https://pubmed.ncbi.nlm.nih.gov/{self.pmid}/"
 
-    @property
-    def doi_url(self) -> str | None:
-        """Lien resolveur vers l'article original chez l'éditeur."""
-        return f"https://doi.org/{self.doi}" if self.doi else None
-
     def issn_candidates(self) -> list[str]:
         """ISSN à essayer pour la jointure qualité, sans doublon."""
         return list(dict.fromkeys(i for i in (self.issn, self.eissn) if i))

@@ -112,15 +112,13 @@ def get_db() -> Iterator[sqlite3.Connection]:
         conn.close()
 
 
-def _optional_int(raw: str | None) -> int | None:
+def _optional_number[T: (int, float)](raw: str | None, cast: type[T]) -> T | None:
     """Un champ de formulaire vide vaut « pas de filtre », pas zéro."""
-    raw = (raw or "").strip()
-    return int(raw) if raw else None
-
-
-def _optional_float(raw: str | None) -> float | None:
     raw = (raw or "").strip().replace(",", ".")
-    return float(raw) if raw else None
+    try:
+        return cast(raw) if raw else None
+    except ValueError as exc:
+        raise HTTPException(422, detail=f"Nombre attendu, reçu : {raw!r}") from exc
 
 
 def _sidebar_context(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -368,9 +366,9 @@ def create_query(
         name=name.strip(),
         pubmed_query=pubmed_query.strip(),
         folder=folder.strip() or "Sans dossier",
-        quartile_min=_optional_int(quartile_min),
-        citedness_min=_optional_float(citedness_min),
-        max_age_years=_optional_int(max_age_years),
+        quartile_min=_optional_number(quartile_min, int),
+        citedness_min=_optional_number(citedness_min, float),
+        max_age_years=_optional_number(max_age_years, int),
         sort=sort,
     )
     _save_hide_below(conn, query_id, hide_below)
@@ -399,9 +397,9 @@ def save_query(
         name=name.strip(),
         pubmed_query=pubmed_query.strip(),
         folder=folder.strip() or "Sans dossier",
-        quartile_min=_optional_int(quartile_min),
-        citedness_min=_optional_float(citedness_min),
-        max_age_years=_optional_int(max_age_years),
+        quartile_min=_optional_number(quartile_min, int),
+        citedness_min=_optional_number(citedness_min, float),
+        max_age_years=_optional_number(max_age_years, int),
         sort=sort,
     )
     _save_hide_below(conn, query_id, hide_below)
@@ -808,6 +806,15 @@ async def article_summary(
     if not generated.text:
         return _render_summary(
             request, pmid, error="Le modèle local a renvoyé une réponse vide."
+        )
+
+    if generated.truncated:
+        return _render_summary(
+            request,
+            pmid,
+            summary=generated.text,
+            summary_model=generated.model,
+            error="Résumé coupé par le plafond de longueur : non mis en cache.",
         )
 
     repo.set_summary_fr(conn, pmid, generated.text, generated.model)
