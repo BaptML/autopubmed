@@ -537,6 +537,18 @@ def test_le_rafraichissement_ne_recupere_aucun_resume(
     )
 
 
+def test_rafraichir_sans_reseau_affiche_l_erreur(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.main.PubMedClient", lambda: FakePubMedClient(en_panne=True)
+    )
+    response = client.post(f"/queries/{client.query_id}/refresh")
+    assert response.status_code == 200
+    assert "PubMed n&#39;a pas répondu" in response.text
+    assert "Semaglutide in Heart Failure" in response.text  # la liste reste là
+
+
 def test_apercu_sans_chaine_n_appelle_pas_pubmed(client: TestClient) -> None:
     response = client.get("/preview")
     assert response.status_code == 200
@@ -722,6 +734,9 @@ class FakePubMedClient:
 
     async def esearch(self, term, *, reldate_days=None, retmax=None):
         from app.models import ESearchResult
+
+        if self._en_panne:
+            raise httpx.ConnectError("reseau injoignable")
 
         return ESearchResult(
             pmids=[],

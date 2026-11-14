@@ -293,3 +293,34 @@ def test_recherche_vide_ne_casse_pas_le_pipeline(db: Path) -> None:
     assert report.kept == 0 and report.new_links == 0
     with get_conn(db) as conn:
         assert repo.get_query(conn, query_id).last_refreshed_at is not None
+
+
+def test_aucune_ecriture_en_attente_pendant_les_appels_openalex(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Une écriture non validée tient le verrou SQLite : s'il restait posé
+    # pendant l'attente réseau, un clic dans l'interface gèlerait le serveur.
+    en_transaction: list[bool] = []
+
+    with get_conn(db) as conn:
+
+        class FakeOpenAlex:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *_exc):
+                return None
+
+            async def get_citedness(self, issn: str) -> float | None:
+                en_transaction.append(conn.in_transaction)
+                return 5.0
+
+        monkeypatch.setattr("app.refresh.OpenAlexClient", FakeOpenAlex)
+        query_id = repo.create_query(
+            conn, name="Citedness", pubmed_query="x", citedness_min=3.0
+        )
+        conn.commit()
+        report = _run(conn, query_id, FakePubMed(ARTICLES))
+
+    assert en_transaction == [False]  # une seule revue sans citedness : la n°5
+    assert report.kept == 3  # NEJM (74) x2 et la revue inconnue (5.0)

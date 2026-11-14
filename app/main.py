@@ -26,7 +26,7 @@ from app.config import PROJECT_ROOT, settings
 from app.db import connect, init_db, relevance_enabled
 from app.llm import OllamaClient
 from app.pubmed import PubMedClient
-from app.refresh import refresh_query
+from app.refresh import RefreshReport, refresh_query
 from app.scheduler import create_scheduler
 
 # uvicorn ne configure que ses propres loggers : sans cela, les messages du job
@@ -429,8 +429,13 @@ async def refresh(
     query = repo.get_query(conn, query_id)
     if query is None:
         raise HTTPException(status_code=404, detail="Requête introuvable")
-    async with PubMedClient() as pubmed:
-        report = await refresh_query(conn, query, pubmed=pubmed)
+    try:
+        async with PubMedClient() as pubmed:
+            report = await refresh_query(conn, query, pubmed=pubmed)
+    except httpx.HTTPError as exc:
+        # Sans cela, la réponse 500 laisse HTMX muet : le clic semble sans effet.
+        report = RefreshReport(query_name=query.name)
+        report.errors.append(f"PubMed n'a pas répondu : {exc or type(exc).__name__}")
     conn.commit()
     return _panel_and_sidebar(
         request,
