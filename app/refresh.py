@@ -106,9 +106,7 @@ def _best_quality(
 
 
 async def _fill_citedness(
-    conn: sqlite3.Connection,
-    summaries: list[ArticleSummary],
-    quality_map: dict[str, JournalQuality],
+    conn: sqlite3.Connection, summaries: list[ArticleSummary]
 ) -> None:
     """Complète la citedness manquante depuis OpenAlex, une fois par revue."""
     issns = sorted({issn for s in summaries for issn in s.issn_candidates()})
@@ -119,13 +117,12 @@ async def _fill_citedness(
     names = {
         issn: s.journal for s in summaries for issn in s.issn_candidates() if s.journal
     }
+    # Tout le réseau avant la première écriture : une écriture pose le verrou
+    # SQLite, qui resterait tenu pendant les appels et gèlerait l'interface.
     async with OpenAlexClient() as client:
-        for issn in missing:
-            citedness = await client.get_citedness(issn)
-            repo.set_citedness(conn, issn, citedness, names.get(issn))
-            if citedness is not None:
-                previous = quality_map.get(issn, JournalQuality())
-                quality_map[issn] = JournalQuality(previous.quartile, citedness)
+        fetched = [(issn, await client.get_citedness(issn)) for issn in missing]
+    for issn, citedness in fetched:
+        repo.set_citedness(conn, issn, citedness, names.get(issn))
 
 
 async def refresh_query(
@@ -158,8 +155,6 @@ async def refresh_query(
     ]
     summaries = await pubmed.esummary(to_fetch) if to_fetch else []
     report.newly_summarized = len(summaries)
-    for summary in summaries:
-        repo.upsert_article(conn, summary)
 
     # Les articles réinterrogés sont déjà dans `summaries` : les reprendre ici
     # les compterait deux fois dans le rapport.
@@ -176,11 +171,14 @@ async def refresh_query(
     all_summaries = summaries + known_summaries
 
     # 3. Qualifier — quartile depuis Scimago, citedness à la demande.
+    if query.citedness_min is not None:
+        await _fill_citedness(conn, all_summaries)
     issns = sorted({issn for s in all_summaries for issn in s.issn_candidates()})
     quality_map = repo.get_quality_map(conn, issns)
-    if query.citedness_min is not None:
-        await _fill_citedness(conn, all_summaries, quality_map)
-        quality_map = repo.get_quality_map(conn, issns)
+
+    # Les écritures commencent ici, une fois tous les appels réseau terminés.
+    for summary in summaries:
+        repo.upsert_article(conn, summary)
 
     # 4. Filtrer puis 5. persister.
     cutoff = repo.cutoff_date(query.max_age_years)

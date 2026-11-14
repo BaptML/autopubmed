@@ -1,7 +1,7 @@
 FROM python:3.12-slim
 
 # On utilise uv pour installer rapidement les dépendances
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.32 /uv /uvx /bin/
 
 WORKDIR /app
 

@@ -1,6 +1,7 @@
 """Tests des fragments HTML servis à HTMX, sur une base temporaire."""
 
 from collections.abc import Iterator
+from datetime import date
 from pathlib import Path
 
 import httpx
@@ -240,6 +241,50 @@ def test_creation_rafraichit_la_barre_laterale_hors_bande(client: TestClient) ->
     assert "Veille B" in response.text
 
 
+def test_durcir_un_filtre_qualite_vaut_pour_les_articles_deja_rattaches(
+    client: TestClient,
+) -> None:
+    # Requête sans filtre qui a ramené une revue Q3, puis passée à Q1 : la
+    # liste et les compteurs suivent le filtre en cours ; le relâcher rend tout.
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "INSERT INTO journal_quality (issn, journal_name, quartile, source, "
+            "updated_at) VALUES ('11110000', 'Rev Moyenne', 3, 'scimago', '2026-01-01')"
+        )
+        query_id = repo.create_query(conn, name="Large", pubmed_query="x")
+        repo.upsert_article(
+            conn,
+            ArticleSummary(
+                pmid="7",
+                title="Article de revue moyenne",
+                journal="Rev Moyenne",
+                issn="11110000",
+                eissn=None,
+                pub_date="2026-01-15",
+            ),
+        )
+        repo.link_article(conn, query_id, "7")
+
+    def enregistrer(quartile_min: str) -> str:
+        return client.post(
+            f"/queries/{query_id}/edit",
+            data={"name": "Large", "pubmed_query": "x", "quartile_min": quartile_min},
+        ).text
+
+    assert "Article de revue moyenne" not in enregistrer("1")
+    with get_conn(client.db_path) as conn:
+        assert repo.count_unread(conn, query_id) == 0
+    assert "Article de revue moyenne" in enregistrer("")
+
+
+def test_un_nombre_invalide_donne_422_et_non_500(client: TestClient) -> None:
+    response = client.post(
+        "/queries/new",
+        data={"name": "x", "pubmed_query": "x", "citedness_min": "abc"},
+    )
+    assert response.status_code == 422
+
+
 def test_edition_met_a_jour_sans_toucher_aux_articles(client: TestClient) -> None:
     query_id = client.query_id
     response = client.post(
@@ -254,10 +299,11 @@ def test_edition_met_a_jour_sans_toucher_aux_articles(client: TestClient) -> Non
         },
     )
     assert response.status_code == 200
-    assert "Semaglutide in Heart Failure" in response.text  # article conservé
 
     with get_conn(client.db_path) as conn:
         query = repo.get_query(conn, query_id)
+        # Le rattachement reste en base : seul l'affichage suit les filtres.
+        assert len(repo.query_documents(conn, query_id)) == 1
     assert query.name == "Renommée"
     assert query.quartile_min is None
     assert query.citedness_min == 3.5  # virgule décimale acceptée
@@ -537,6 +583,63 @@ def test_le_rafraichissement_ne_recupere_aucun_resume(
     )
 
 
+def test_rafraichir_sans_reseau_affiche_l_erreur(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "app.main.PubMedClient", lambda: FakePubMedClient(en_panne=True)
+    )
+    response = client.post(f"/queries/{client.query_id}/refresh")
+    assert response.status_code == 200
+    assert "PubMed n&#39;a pas répondu" in response.text
+    assert "Semaglutide in Heart Failure" in response.text  # la liste reste là
+
+
+def test_rafraichir_signale_les_resultats_non_examines(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Le faux client annonce 1234 résultats et n'en rapporte aucun.
+    monkeypatch.setattr("app.main.PubMedClient", lambda: FakePubMedClient())
+    response = client.post(f"/queries/{client.query_id}/refresh")
+    assert "Seuls les 0 plus récents ont été examinés" in response.text
+
+
+def test_les_non_lus_ignorent_les_articles_hors_dates(client: TestClient) -> None:
+    # Trop ancien pour la requête ou daté dans le futur : absent de la liste,
+    # donc absent des compteurs, et « tout marquer comme lu » n'y touche pas.
+    with get_conn(client.db_path) as conn:
+        query_id = repo.create_query(
+            conn, name="Un an", pubmed_query="x", max_age_years=1
+        )
+        for pmid, pub_date in (
+            ("1", date.today().isoformat()),
+            ("2", "2015-01-01"),
+            ("3", "2999"),
+        ):
+            repo.upsert_article(
+                conn,
+                ArticleSummary(
+                    pmid=pmid,
+                    title=f"Titre {pmid}",
+                    journal="J",
+                    issn=None,
+                    eissn=None,
+                    pub_date=pub_date,
+                ),
+            )
+            repo.link_article(conn, query_id, pmid)
+
+        assert len(repo.list_articles_for_query(conn, query_id, max_age_years=1)) == 1
+        assert repo.count_unread(conn, query_id) == 1
+        barre = {
+            q["id"]: q["unread"]
+            for dossier in repo.folders_with_queries(conn)
+            for q in dossier["queries"]
+        }
+        assert barre[query_id] == 1
+        assert repo.mark_all_read(conn, query_id) == 1
+
+
 def test_apercu_sans_chaine_n_appelle_pas_pubmed(client: TestClient) -> None:
     response = client.get("/preview")
     assert response.status_code == 200
@@ -723,6 +826,9 @@ class FakePubMedClient:
     async def esearch(self, term, *, reldate_days=None, retmax=None):
         from app.models import ESearchResult
 
+        if self._en_panne:
+            raise httpx.ConnectError("reseau injoignable")
+
         return ESearchResult(
             pmids=[],
             count=1234,
@@ -735,9 +841,15 @@ class FakePubMedClient:
 class FakeOllamaClient:
     """Simule OllamaClient : aucun modèle local n'est sollicité par les tests."""
 
-    def __init__(self, texte: str = "Un résumé français.", en_panne: bool = False):
+    def __init__(
+        self,
+        texte: str = "Un résumé français.",
+        en_panne: bool = False,
+        coupe: bool = False,
+    ):
         self._texte = texte
         self._en_panne = en_panne
+        self._coupe = coupe
         self.calls: list[tuple[str, str]] = []
 
     async def __aenter__(self):
@@ -756,7 +868,7 @@ class FakeOllamaClient:
             eval_count=10,
             eval_seconds=1.0,
             load_seconds=0.0,
-            truncated=False,
+            truncated=self._coupe,
         )
 
 
@@ -823,6 +935,19 @@ def test_un_article_sans_abstract_n_appelle_pas_le_modele(client, monkeypatch) -
     assert reponse.status_code == 200
     assert "Aucun résumé original à synthétiser" in reponse.text
     assert llm.calls == []
+
+
+def test_un_resume_coupe_est_montre_sans_etre_mis_en_cache(
+    avec_abstract, monkeypatch
+) -> None:
+    _brancher_llm(monkeypatch, FakeOllamaClient(coupe=True))
+
+    reponse = avec_abstract.post("/articles/40000001/summary", data={"regenerate": 0})
+
+    assert "Un résumé français." in reponse.text
+    assert "non mis en cache" in reponse.text
+    with get_conn(avec_abstract.db_path) as conn:
+        assert repo.get_summary_fr(conn, "40000001")[0] is None
 
 
 def test_ollama_en_panne_affiche_un_message_et_n_ecrit_rien(

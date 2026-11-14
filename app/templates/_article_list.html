@@ -62,6 +62,12 @@
     {% if report.unmatched_quality %}
       · {{ report.unmatched_quality }} sans qualité connue
     {% endif %}
+    {# PubMed plafonne les PMID rapportés (ESEARCH_RETMAX) : le dire, sinon le
+       reste de la requête est ignoré sans aucun signe. #}
+    {% if report.fetched < report.total_hits %}
+      <br>⚠ Seuls les {{ report.fetched }} plus récents ont été examinés :
+      précise la chaîne ou augmente ESEARCH_RETMAX.
+    {% endif %}
     {% for warning in report.warnings %}<br>⚠ {{ warning }}{% endfor %}
     {% for error in report.errors %}<br>✕ {{ error }}{% endfor %}
   </div>

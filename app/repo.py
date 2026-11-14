@@ -316,6 +316,19 @@ _QUARTILE_SUBQUERY = """
       WHERE jq.issn IN (a.issn, a.eissn)) AS quartile
 """
 
+# Filtres qualité de la requête `q`, réappliqués à la lecture comme
+# l'ancienneté : durcir un filtre après coup vaut aussi pour les articles déjà
+# rattachés, et le relâcher les fait réapparaître. Même règle que
+# `quality.passes_quality` : une valeur inconnue rend la comparaison NULL, donc
+# l'article est écarté dès qu'un filtre est actif.
+_QUALITY_CLAUSE = """(
+    (q.quartile_min IS NULL OR
+     (SELECT MIN(jq.quartile) FROM journal_quality jq
+       WHERE jq.issn IN (a.issn, a.eissn)) <= q.quartile_min)
+    AND (q.citedness_min IS NULL OR
+     (SELECT MAX(jq.citedness) FROM journal_quality jq
+       WHERE jq.issn IN (a.issn, a.eissn)) >= q.citedness_min))"""
+
 
 def _relevance_hidden() -> str:
     """Expression SQL vraie si la paire `qa` est masquée par la pertinence.
@@ -348,7 +361,8 @@ def folders_with_queries(conn: sqlite3.Connection) -> list[dict]:
     rows = conn.execute(
         f"""
         SELECT q.id, q.name, q.folder, q.last_refreshed_at,
-               COUNT(CASE WHEN qa.read = 0 AND {_relevance_visible()}
+               COUNT(CASE WHEN qa.read = 0 AND {_LIST_VISIBLE}
+                               AND {_relevance_visible()}
                           THEN 1 END) AS unread,
                COUNT(qa.pmid) AS total
         FROM queries q
@@ -475,7 +489,10 @@ def list_articles_for_query(
 
 def _where_for_query(favorites_only: bool, show_hidden: bool = False) -> str:
     """Filtre d'une liste de requête. Partagé par la lecture et le comptage."""
-    where = f"qa.query_id = ? AND {_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE}"
+    where = (
+        f"qa.query_id = ? AND {_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE} "
+        f"AND {_QUALITY_CLAUSE}"
+    )
     if favorites_only:
         where += " AND EXISTS(SELECT 1 FROM favorites f WHERE f.pmid = a.pmid)"
     if not show_hidden:
@@ -536,11 +553,19 @@ _FLUX_AGE_CLAUSE = (
 )
 
 
+# Une paire `qa` vue sans jointure : même verdict que la liste (ancienneté de
+# la requête, pas de futur, qualité), pour les compteurs de non-lus.
+_LIST_VISIBLE = f"""EXISTS(
+        SELECT 1 FROM articles a JOIN queries q ON q.id = qa.query_id
+        WHERE a.pmid = qa.pmid AND {_FLUX_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE}
+          AND {_QUALITY_CLAUSE})"""
+
+
 def _flux_where() -> str:
     """Filtre du flux, partagé par sa lecture et son compteur."""
     return (
         f"{_NEW_CLAUSE} AND {_FLUX_AGE_CLAUSE} AND {_NOT_FUTURE_CLAUSE} "
-        f"AND {_relevance_visible()}"
+        f"AND {_QUALITY_CLAUSE} AND {_relevance_visible()}"
     )
 
 
@@ -747,7 +772,7 @@ def set_read(conn: sqlite3.Connection, query_id: int, pmid: str, read: bool) -> 
 
 def _unread_where(show_hidden: bool) -> str:
     """Non-lus d'une requête : ceux que la liste montre, masqués compris ou non."""
-    where = "qa.query_id = ? AND qa.read = 0"
+    where = f"qa.query_id = ? AND qa.read = 0 AND {_LIST_VISIBLE}"
     return where if show_hidden else f"{where} AND {_relevance_visible()}"
 
 
@@ -867,21 +892,7 @@ def replace_scores(
     )
 
 
-# --- État de l'application ----------------------------------------------
-
-
-def get_app_state(conn: sqlite3.Connection, key: str) -> str | None:
-    row = conn.execute("SELECT value FROM app_state WHERE key = ?", (key,)).fetchone()
-    return row["value"] if row else None
-
-
-def set_app_state(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute(
-        "INSERT INTO app_state (key, value, updated_at) VALUES (?, ?, ?) "
-        "ON CONFLICT(key) DO UPDATE SET value = excluded.value, "
-        "updated_at = excluded.updated_at",
-        (key, value, utcnow_iso()),
-    )
+# --- Repère de visite ---------------------------------------------------
 
 
 def record_visit(
