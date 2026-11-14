@@ -241,6 +241,42 @@ def test_creation_rafraichit_la_barre_laterale_hors_bande(client: TestClient) ->
     assert "Veille B" in response.text
 
 
+def test_durcir_un_filtre_qualite_vaut_pour_les_articles_deja_rattaches(
+    client: TestClient,
+) -> None:
+    # Requête sans filtre qui a ramené une revue Q3, puis passée à Q1 : la
+    # liste et les compteurs suivent le filtre en cours ; le relâcher rend tout.
+    with get_conn(client.db_path) as conn:
+        conn.execute(
+            "INSERT INTO journal_quality (issn, journal_name, quartile, source, "
+            "updated_at) VALUES ('11110000', 'Rev Moyenne', 3, 'scimago', '2026-01-01')"
+        )
+        query_id = repo.create_query(conn, name="Large", pubmed_query="x")
+        repo.upsert_article(
+            conn,
+            ArticleSummary(
+                pmid="7",
+                title="Article de revue moyenne",
+                journal="Rev Moyenne",
+                issn="11110000",
+                eissn=None,
+                pub_date="2026-01-15",
+            ),
+        )
+        repo.link_article(conn, query_id, "7")
+
+    def enregistrer(quartile_min: str) -> str:
+        return client.post(
+            f"/queries/{query_id}/edit",
+            data={"name": "Large", "pubmed_query": "x", "quartile_min": quartile_min},
+        ).text
+
+    assert "Article de revue moyenne" not in enregistrer("1")
+    with get_conn(client.db_path) as conn:
+        assert repo.count_unread(conn, query_id) == 0
+    assert "Article de revue moyenne" in enregistrer("")
+
+
 def test_un_nombre_invalide_donne_422_et_non_500(client: TestClient) -> None:
     response = client.post(
         "/queries/new",
@@ -263,10 +299,11 @@ def test_edition_met_a_jour_sans_toucher_aux_articles(client: TestClient) -> Non
         },
     )
     assert response.status_code == 200
-    assert "Semaglutide in Heart Failure" in response.text  # article conservé
 
     with get_conn(client.db_path) as conn:
         query = repo.get_query(conn, query_id)
+        # Le rattachement reste en base : seul l'affichage suit les filtres.
+        assert len(repo.query_documents(conn, query_id)) == 1
     assert query.name == "Renommée"
     assert query.quartile_min is None
     assert query.citedness_min == 3.5  # virgule décimale acceptée

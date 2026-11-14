@@ -322,6 +322,14 @@ perd ses rattachements aux requêtes.
 - **Revues non classées** (absentes de Scimago, `quartile IS NULL`) : quand un
   filtre quartile est actif, elles sont **écartées** (choix conservateur) ;
   sans filtre, elles sont conservées.
+- **Réappliqué à la lecture** : comme l'ancienneté, les filtres qualité
+  s'appliquent deux fois — au rafraîchissement (l'article n'est pas rattaché)
+  et à l'affichage (liste, compteurs, non-lus, flux des nouveautés). Durcir un
+  filtre après coup vaut donc aussi pour les articles déjà rattachés ; le
+  relâcher les fait réapparaître, rien n'est supprimé. La citedness d'une
+  revue n'étant récupérée qu'au rafraîchissement d'une requête qui filtre
+  dessus, un article ancien d'une revue jamais interrogée reste masqué tant
+  qu'un rafraîchissement ne l'a pas ramenée.
 - **Normalisation ISSN** : Scimago fournit les ISSN sans tiret et parfois deux
   par revue collés. Il faut normaliser (retirer tirets/espaces) et indexer
   **chaque** ISSN d'une revue, car PubMed renvoie tantôt l'ISSN papier, tantôt
